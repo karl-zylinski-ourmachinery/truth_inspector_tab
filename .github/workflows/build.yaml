@@ -42,14 +42,10 @@ jobs:
         binary_repository: https://ourmachinery.com/releases/2021.4/beta-2021.4-linux.zip
         mode: Plugin
         package: package.json
-    - uses: "marvinpinto/action-automatic-releases@latest"
+    - uses: actions/upload-artifact@v2
       with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: "latest-linux"
-        title: "Latest Linux Version"
-        prerelease: false
-        files: |
-          ./build/*.zip 
+        name: linux-latest
+        path: ./build/*.zip
   binary-windows:
     name: Build latest for Windows
     runs-on: windows-latest
@@ -76,11 +72,23 @@ jobs:
         binary_repository: https://ourmachinery.com/releases/2021.4/beta-2021.4-windows.zip
         mode: Plugin
         package: package.json
-    - uses: "marvinpinto/action-automatic-releases@latest"
+    - uses: actions/upload-artifact@v2
       with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: "latest-windows"
-        title: "Latest Windows Version"
-        prerelease: false
-        files: |
-          ./build/*.zip 
+        name: windows_latest
+        path: ./build/*.zip
+  release:
+    name: Publish Release
+    runs-on: ubuntu-20.04
+    needs: [binary-windows, binary-linux]
+    steps:
+      - name: Download a Build Artifact
+        uses: actions/download-artifact@v2.0.9
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+            repo_token: "${{ secrets.GITHUB_TOKEN }}"
+            automatic_release_tag: "latest"
+            title: "Latest Version"
+            prerelease: false
+            files: |
+              ./windows_latest/*.zip 
+              ./linux_latest/*.zip 
