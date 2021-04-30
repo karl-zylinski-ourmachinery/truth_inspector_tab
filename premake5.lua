@@ -92,6 +92,7 @@ filter {"platforms:Linux"}
         "-fcommon",                          -- Allow tentative definitions
     }
     libdirs {get_lib_dir()}
+    linkoptions{"-Wl,-force-load"}
     disablewarnings {
         "missing-field-initializers",   -- = {0} is OK.
         "unused-parameter",             -- Useful for documentation purposes.
@@ -119,6 +120,5 @@ project "truth_inspector_tab"
     targetdir "$(TM_SDK_DIR)/bin/%{cfg.buildcfg}/plugins"
     dependson("foundation")
     links { "foundation" }
-    linkoptions{"-Wl,-force-load,libfoundation.a"}
     defines { "TM_LINKS_FOUNDATION" }
     defines { "TM_LINKS_TRUTH_QUERY" }
