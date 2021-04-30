@@ -659,10 +659,10 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
     bool not_in_list = false;
     tm_rect_t label_r = { content_r.x, content_r.y, default_metrics[TM_PROPERTIES_METRIC_LABEL_WIDTH], metrics_item_h };
     TM_INIT_TEMP_ALLOCATOR_WITH_ADAPTER(ta, a);
-    const char **type_names = data->type_names;
+    char **type_names = data->type_names;
     tm_tt_type_t *tt_types = data->tt_types;
-    const char **search_items = data->search_items;
-    const char **search_aspect_names = data->search_aspect_names;
+    char **search_items = data->search_items;
+    char **search_aspect_names = data->search_aspect_names;
     if (filter->mode != MODE_DISPLAY_SPECIFIC_OBJECT && filter->mode != MODE_DISPLAY_ASPECT) {
         tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = label_r, .text = TM_LOCALIZE("Truth Type Name") });
         tm_rect_t text_r = { content_r.x + label_r.w + 10, content_r.y, content_r.w - label_r.w - 10, metrics_item_h };
@@ -1063,7 +1063,7 @@ static void tab__destroy(tm_tab_o *tab)
     tm_set_free(&tab->expanded);
     tm_hash_free(&tab->index_or_hash_to_type);
     tm_hash_free(&tab->index_or_hash_to_aspect);
-    tm_carray_free(&tab->aspects, tab->allocator);
+    tm_carray_free(tab->aspects, tab->allocator);
     tm_free(tab->allocator, tab, sizeof(*tab));
 }
 

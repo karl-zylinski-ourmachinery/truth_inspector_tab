@@ -7,18 +7,18 @@ extern struct tm_localizer_api *tm_localizer_api;
 extern struct tm_the_truth_api *tm_the_truth_api;
 
 #include <foundation/api_registry.h>
-#include <foundation/temp_allocator.h>
 #include <foundation/api_types.h>
-#include <foundation/macros.h>
 #include <foundation/localizer.h>
-#include <foundation/the_truth.h>
+#include <foundation/macros.h>
 #include <foundation/string.inl>
+#include <foundation/temp_allocator.h>
+#include <foundation/the_truth.h>
 
 #include <plugins/editor_views/properties.h>
 #include <plugins/os_window/os_window.h>
+#include <plugins/ui/docking.h>
 #include <plugins/ui/ui.h>
 #include <plugins/ui/ui_custom.h>
-#include <plugins/ui/docking.h>
 
 #include "truth_inspector.h"
 
@@ -31,13 +31,13 @@ extern struct tm_the_truth_api *tm_the_truth_api;
 #include <plugins/physics/physics_shape_component.h>
 #include <plugins/shader_system/shader_system_creation_graph.h>
 #include <plugins/the_machinery_shared/asset_aspects.h>
-#include <plugins/ui/clipboard.h>
 #include <plugins/the_machinery_shared/component_interfaces/editor_ui_interface.h>
-#include <plugins/the_machinery_shared/component_interfaces/shader_interface.h>
 #include <plugins/the_machinery_shared/component_interfaces/render_interface.h>
+#include <plugins/the_machinery_shared/component_interfaces/shader_interface.h>
+#include <plugins/ui/clipboard.h>
 
-#include <string.h>
 #include <inttypes.h>
+#include <string.h>
 
 struct tm_tab_o;
 
@@ -123,10 +123,10 @@ static float graph_ui(tm_properties_ui_args_t *args, tm_rect_t props_r, const tm
     char *name = tm_temp_alloc(ta, strlen(org_name) + 1);
     tm_get_display_name(org_name, name, (uint32_t)strlen(org_name) + 1);
     props_r.y = copy_disabled_text(args, props_r, "Subgraph type Hash", tm_temp_allocator_api->printf(ta, "%" PRIu64, TM_STRHASH_U64(graph->subgraph_type_hash)));
-    if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){.rect = props_r, .text = tm_temp_allocator_api->printf(ta, "Show all objects of Subgraph Type (%s)", name)}))
+    if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){ .rect = props_r, .text = tm_temp_allocator_api->printf(ta, "Show all objects of Subgraph Type (%s)", name) }))
         show_all_object_of_this_type(args->tab->inst, type);
     props_r.y += metrics_item_h;
-    if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){.rect = props_r, .text = tm_temp_allocator_api->printf(ta, "Inspect Subgraph Type (%s)", name)}))
+    if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){ .rect = props_r, .text = tm_temp_allocator_api->printf(ta, "Inspect Subgraph Type (%s)", name) }))
         show_this_type(args->tab->inst, type);
     props_r.y += metrics_item_h;
     TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
@@ -219,25 +219,29 @@ static tm_tt_inspector_aspect_t *asset_open = &(tm_tt_inspector_aspect_t){
     .define = "TM_TT_ASPECT__ASSET_OPEN",
     .name = "tm_asset_open_aspect_i",
     .type_hash = TM_TT_ASPECT__ASSET_OPEN,
-    .description = "Assets with this aspect can be opened via double click."};
+    .description = "Assets with this aspect can be opened via double click."
+};
 // ---
 static tm_tt_inspector_aspect_t *ci_editor_ui = &(tm_tt_inspector_aspect_t){
     .define = "TM_CI_EDITOR_UI",
     .name = "tm_ci_editor_ui_i",
     .type_hash = TM_CI_EDITOR_UI,
-    .description = "Interface for UI manipulation of the component."};
+    .description = "Interface for UI manipulation of the component."
+};
 // ---
 static tm_tt_inspector_aspect_t *ci_render = &(tm_tt_inspector_aspect_t){
     .define = "TM_CI_RENDER",
     .name = "tm_ci_render_i",
     .type_hash = TM_CI_RENDER,
-    .description = "Defines the component interface for a rendering subpass."};
+    .description = "Defines the component interface for a rendering subpass."
+};
 // ---
 static tm_tt_inspector_aspect_t *ci_shader = &(tm_tt_inspector_aspect_t){
     .define = "TM_CI_SHADER",
     .name = "tm_ci_shader_i",
     .type_hash = TM_CI_SHADER,
-    .description = " Defines the component interface for a shading subpass."};
+    .description = " Defines the component interface for a shading subpass."
+};
 // ---
 
 // ------- property aspects
@@ -245,19 +249,22 @@ static tm_tt_inspector_aspect_t *props_aspect_props_asset_picker = &(tm_tt_inspe
     .define = "TM_TT_PROP_ASPECT__PROPERTIES__ASSET_PICKER",
     .name = "tm_tt_prop_aspect__properties__asset_picker",
     .type_hash = TM_TT_PROP_ASPECT__PROPERTIES__ASSET_PICKER,
-    .description = "Property aspect that specifies that the property should use the Asset Picker to set the value"};
+    .description = "Property aspect that specifies that the property should use the Asset Picker to set the value"
+};
 // ---
 static tm_tt_inspector_aspect_t *props_aspect_props_local_entity_picker = &(tm_tt_inspector_aspect_t){
     .define = "TM_TT_PROP_ASPECT__PROPERTIES__USE_LOCAL_ENTITY_PICKER",
     .name = "tm_tt_prop_aspect__properties__use_local_entity_picker",
     .type_hash = TM_TT_PROP_ASPECT__PROPERTIES__USE_LOCAL_ENTITY_PICKER,
-    .description = "If set to a non-zero value, a \"local entity picker\" will be used to pick the TM_THE_TRUTH_PROPERTY_TYPE_REFERENCE property."};
+    .description = "If set to a non-zero value, a \"local entity picker\" will be used to pick the TM_THE_TRUTH_PROPERTY_TYPE_REFERENCE property."
+};
 // ---
 static tm_tt_inspector_aspect_t *props_aspect_props_custom_ui = &(tm_tt_inspector_aspect_t){
     .define = "TM_TT_PROP_ASPECT__PROPERTIES__CUSTOM_UI",
     .name = "tm_tt_prop_aspect__properties__custom_ui",
     .type_hash = TM_TT_PROP_ASPECT__PROPERTIES__CUSTOM_UI,
-    .description = "Used to implement a custom UI for a single property in an object"};
+    .description = "Used to implement a custom UI for a single property in an object"
+};
 
 void load_aspect_uis(struct tm_api_registry_api *reg, bool load)
 {
@@ -265,7 +272,9 @@ void load_aspect_uis(struct tm_api_registry_api *reg, bool load)
     tm_add_or_remove_implementation(reg, load, TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, graph_aspect);
     tm_add_or_remove_implementation(reg, load, TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, asm_state_graph);
     tm_add_or_remove_implementation(reg, load, TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, asm_state_graph_node);
+    tm_add_or_remove_implementation(reg, load, TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, state_graph_transtion);
     tm_add_or_remove_implementation(reg, load, TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, asm_transit_interface);
+    tm_add_or_remove_implementation(reg, load, TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, asm_state_interface);
     tm_add_or_remove_implementation(reg, load, TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, properties_aspect);
     tm_add_or_remove_implementation(reg, load, TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, properties_valid_aspect);
     tm_add_or_remove_implementation(reg, load, TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, tree_view_aspect);
