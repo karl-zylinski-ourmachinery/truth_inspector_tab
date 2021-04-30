@@ -16,6 +16,14 @@ function get_include_dir()
     return os.getenv("TM_SDK_DIR") .. "/headers"
 end
 
+function get_lib_dir()
+    local is_dev = os.getenv("TM_IS_DEV_VER")
+    if is_dev == nil then
+        return os.getenv("TM_SDK_DIR") .. "/bin/%{cfg.buildcfg}"
+    end
+    return "${TM_SDK_DIR}/lib/" .. _ACTION .. "/%{cfg.buildcfg}"
+end
+
 workspace "truth_inspector_tab"
     configurations {"Debug", "Release"}
     language "C++"
@@ -24,7 +32,6 @@ workspace "truth_inspector_tab"
     warnings "Extra"
     inlining "Auto"
     sysincludedirs { "" }
-    targetdir "bin/%{cfg.buildcfg}"
 
 filter "system:windows"
     platforms { "Win64" }
@@ -57,7 +64,7 @@ filter "platforms:Win64"
     prebuildcommands {
         "if not defined TM_SDK_DIR (echo ERROR: Environment variable TM_SDK_DIR must be set)"
     }
-    libdirs { "%TM_SDK_DIR%/bin/%{cfg.buildcfg}"}
+    libdirs {get_lib_dir()}
     disablewarnings {
         "4057", -- Slightly different base types. Converting from type with volatile to without.
         "4100", -- Unused formal parameter. I think unusued parameters are good for documentation.
@@ -84,7 +91,7 @@ filter {"platforms:Linux"}
         "-mfma",                             -- FMA.
         "-fcommon",                          -- Allow tentative definitions
     }
-    libdirs { "${TM_SDK_DIR}/lib/" .. _ACTION .. "/%{cfg.buildcfg}"}
+    libdirs {get_lib_dir()}
     disablewarnings {
         "missing-field-initializers",   -- = {0} is OK.
         "unused-parameter",             -- Useful for documentation purposes.

@@ -1,0 +1,58 @@
+{
+    "name": "latest",
+    "steps": [
+        {
+            "log": "Build Plugin",
+            "action": "build"
+        },
+        {
+            "action": "copy-file-patterns",
+            "from-dir": "%TM_SDK_DIR%/bin/Release/plugins",
+            "to-dir": "plugins/",
+            "file-patterns": [
+                "/tm_truth_inspector_tab.dll"
+            ],
+            "platforms": [
+                "windows"
+            ]
+        },
+        {
+            "action": "copy-file-patterns",
+            "from-dir": "%TM_SDK_DIR%/bin/Release/plugins",
+            "to-dir": "plugins/",
+            "file-patterns": [
+                "/libtm_truth_inspector_tab.so"
+            ],
+            "platforms": [
+                "linux"
+            ]
+        },
+        {
+            "action": "copy-file-patterns",
+            "from-dir": ".",
+            "to-dir": "headers/plugins/truth_inspector",
+            "file-patterns": [
+                "*.h",
+                "*.inl",
+                "!*_internal.h",
+                "!*_internal.inl"
+            ]
+        },
+        {
+            "log": "Zip",
+            "action": "zip",
+            "name": "latest-windows",
+            "platforms": [
+                "windows"
+            ]
+        },
+        {
+            "log": "Zip",
+            "action": "zip",
+            "name": "latest-linux",
+            "platforms": [
+                "linux"
+            ]
+        }
+    ]
+}
