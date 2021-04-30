@@ -12,8 +12,8 @@ on:
       - main
 
 jobs:
-  binary:
-    name: Build with binary
+  binary-linux:
+    name: Build latest for Linux
     runs-on: ubuntu-20.04
     env:
       TM_LIB_DIR: ${{github.workspace}}/lib
@@ -45,8 +45,42 @@ jobs:
     - uses: "marvinpinto/action-automatic-releases@latest"
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: "latest"
-        title: "Latest Version"
+        automatic_release_tag: "latest-linux"
+        title: "Latest Linux Version"
+        prerelease: false
+        files: |
+          ./build/*.zip 
+  binary-windows:
+    name: Build latest for Windows
+    runs-on: windows-latest
+    env:
+      TM_LIB_DIR: ${{github.workspace}}/lib
+      TM_IS_DEV_VER: true
+    steps:
+    - name: Add msbuild to PATH
+      uses: microsoft/setup-msbuild@v1.0.2
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        path: ./
+    - name: Checkout tmbuild-action repo
+      uses: actions/checkout@v2
+      with:
+        path: tmbuild-action
+        ref: ziped-source
+        repository: simon-ourmachinery/tmbuild-action
+    - name: Package Plugin package.json setting
+      uses: ./tmbuild-action
+      id: tmbuild
+      with:
+        binary_repository: https://ourmachinery.com/releases/2021.4/beta-2021.4-linux.zip
+        mode: Plugin
+        package: package.json
+    - uses: "marvinpinto/action-automatic-releases@latest"
+      with:
+        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        automatic_release_tag: "latest-windows"
+        title: "Latest Windows Version"
         prerelease: false
         files: |
           ./build/*.zip 
