@@ -8,7 +8,7 @@
         {
             "action": "copy-file-patterns",
             "from-dir": "%TM_SDK_DIR%/bin/Release/plugins",
-            "to-dir": "plugins/",
+            "to-dir": "bin/plugins/",
             "file-patterns": [
                 "/tm_truth_inspector_tab.dll"
             ],
@@ -19,7 +19,7 @@
         {
             "action": "copy-file-patterns",
             "from-dir": "%TM_SDK_DIR%/bin/Release/plugins",
-            "to-dir": "plugins/",
+            "to-dir": "bin/plugins/",
             "file-patterns": [
                 "/libtm_truth_inspector_tab.so"
             ],
