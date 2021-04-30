@@ -1,0 +1,49 @@
+name: Build latest
+
+on: 
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+
+jobs:
+  binary:
+    name: Build with binary
+    runs-on: ubuntu-20.04
+    env:
+      TM_LIB_DIR: ${{github.workspace}}/lib
+      TM_IS_DEV_VER: true
+    steps:
+    - name: Update apt
+      run: sudo apt update -y
+    - name: Install xlib dependencies
+      run: sudo apt install -y  xvfb libasound2-dev libxcb-randr0-dev libxcb-util0-dev libxcb-ewmh-dev libxcb-icccm4-dev libxcb-keysyms1-dev libxcb-cursor-dev libxcb-xkb-dev libxkbcommon-dev libxkbcommon-x11-dev libtinfo5 libminizip1 unzip libxcb-xrm-dev
+    - name: download and install clang and build-essential
+      run:  sudo apt install build-essential lld clang -y
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        path: ./
+    - name: Checkout tmbuild-action repo
+      uses: actions/checkout@v2
+      with:
+        path: tmbuild-action
+        ref: ziped-source
+        repository: simon-ourmachinery/tmbuild-action
+    - name: Package Plugin package.json setting
+      uses: ./tmbuild-action
+      id: tmbuild
+      with:
+        binary_repository: https://ourmachinery.com/releases/2021.4/beta-2021.4-linux.zip
+        mode: Plugin
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "latest"
+          title: "Latest Version"
+          files: |
+            LICENSE
+            README.md
+            ./build/*.zip
