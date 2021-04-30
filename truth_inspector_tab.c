@@ -7,7 +7,6 @@ static struct tm_api_registry_api *tm_global_api_registry;
 static struct tm_draw2d_api *tm_draw2d_api;
 static struct tm_application_api *tm_application_api;
 static struct tm_logger_api *tm_logger_api;
-extern struct tm_truth_query_api *tm_truth_query_api;
 
 struct tm_os_clipboard_api *tm_os_clipboard_api;
 
@@ -38,14 +37,12 @@ struct tm_properties_view_api *tm_properties_view_api;
 #include <plugins/ui/ui_icon.h>
 
 #include "truth_inspector.h"
-#include "truth_query.h"
 #include <the_machinery/the_machinery_tab.h>
 
 #include <stdio.h>
 
 // extern functions:
 extern void load_aspect_uis(struct tm_api_registry_api *reg, bool load);
-extern void load_query(struct tm_api_registry_api *reg, bool load);
 extern void load_asset_browser_integration(struct tm_api_registry_api *reg, bool load);
 
 const float metrics_item_h = 25.f;
@@ -77,8 +74,8 @@ enum filter_mode_e {
     MODE_DISPLAY_OBJECTS_OF_TYPE,
     MODE_DISPLAY_OBJECTS_OWNED_BY,
     MODE_DISPLAY_TYPE,
-    MODE_DISPLAY_QUERY,
     MODE_DISPLAY_TYPE_BY_NUMBER,
+    MODE_DISPLAY_ASPECT,
 };
 
 struct filter_t
@@ -103,10 +100,8 @@ struct tm_tab_o
     tm_properties_ui_args_t prop_args;
     struct filter_t filter;
     char buffer[1024];
-    char query[1024];
     tm_set_id_t expanded;
     tm_hash64_t index_or_hash_to_type;
-    tm_truth_query_o *query_data;
 };
 
 #pragma endregion
@@ -670,7 +665,7 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
     const char **type_names = data->type_names;
     tm_tt_type_t *tt_types = data->tt_types;
     const char **search_items = data->search_items;
-    if (filter->mode != MODE_DISPLAY_QUERY && filter->mode != MODE_DISPLAY_SPECIFIC_OBJECT) {
+    if (filter->mode != MODE_DISPLAY_SPECIFIC_OBJECT) {
         tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = label_r, .text = TM_LOCALIZE("Truth Type Name") });
         tm_rect_t text_r = { content_r.x + label_r.w + 10, content_r.y, content_r.w - label_r.w - 10, metrics_item_h };
         if (tm_ui_popup_item_picker_api->pick_textedit(ui, uistyle, &(tm_ui_textedit_picker_t){ .rect = text_r, .default_text = "Enter Truth Type Name or Hash or Index", .num_of_strings = (uint32_t)tm_carray_size(search_items) - 1, .strings = search_items, .search_text = data->buffer, .search_text_bytes = 1024 }, &data->filter.picked, &not_in_list)) {
@@ -679,15 +674,6 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         }
         if (tm_vec2_in_rect(uib.input->mouse_pos, text_r) && (uib.input->right_mouse_pressed || uib.input->left_mouse_pressed)) {
             data->filter.object = (tm_tt_id_t){ 0 };
-        }
-        content_r.y += metrics_item_h;
-    } else if (filter->mode != MODE_DISPLAY_SPECIFIC_OBJECT) {
-        tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = label_r, .text = TM_LOCALIZE("Query") });
-        tm_rect_t text_r = { content_r.x + label_r.w + 10, content_r.y, content_r.w - label_r.w - 10, metrics_item_h };
-        tm_ui_api->textedit(ui, uistyle, &(tm_ui_textedit_t){ .rect = tm_rect_split_right(text_r, 50, 0, 0), .default_text = "Enter your query here" }, data->query, 1024);
-        if (tm_ui_api->button(ui, uistyle, &(tm_ui_button_t){ .text = "run", .rect = tm_rect_split_right(text_r, 50, 0, 1) })) {
-            data->filter.object = (tm_tt_id_t){ 0 };
-            tm_truth_query_api->run(data->query_data, data->query);
         }
         content_r.y += metrics_item_h;
     } else {
@@ -727,10 +713,9 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         filter->object = (tm_tt_id_t){ 0 };
     }
 
-    if (tm_ui_api->radio(ui, uistyle, &(tm_ui_radio_t){ .rect = tm_rect_divide_x(checkbox_row, 5, 4, 3), .text = TM_LOCALIZE("Query") }, filter->mode == MODE_DISPLAY_QUERY)) {
-        filter->mode = MODE_DISPLAY_QUERY;
+    if (tm_ui_api->radio(ui, uistyle, &(tm_ui_radio_t){ .rect = tm_rect_divide_x(checkbox_row, 5, 4, 3), .text = TM_LOCALIZE("Show Aspects") }, filter->mode == MODE_DISPLAY_ASPECT)) {
+        filter->mode = MODE_DISPLAY_ASPECT;
         data->buffer[0] = 0;
-        data->query[0] = 0;
         filter->object = (tm_tt_id_t){ 0 };
     }
 
@@ -738,7 +723,7 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         filter->picked = 0;
     }
 
-    const bool display_use_query = filter->mode == MODE_DISPLAY_QUERY;
+    const bool display_use_aspect = filter->mode == MODE_DISPLAY_ASPECT;
     const bool display_only_type = filter->mode == MODE_DISPLAY_TYPE;
     const bool display_object = filter->mode == MODE_DISPLAY_SPECIFIC_OBJECT;
     const bool display_objects_of_type = filter->mode == MODE_DISPLAY_OBJECTS_OF_TYPE;
@@ -789,7 +774,7 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         .w = scroll_content_r.w - 20,
         .h = 20.0f,
     };
-    if (filter->picked && !not_in_list && !display_use_query) {
+    if (filter->picked && !not_in_list && !display_use_aspect) {
         if (display_objects_of_type) {
             tm_tt_id_t *ids = tm_the_truth_api->all_objects_of_type(data->tt, tt_types[filter->picked], ta);
             for (tm_tt_id_t *id = ids; id != tm_carray_end(ids); ++id) {
@@ -892,7 +877,6 @@ static tm_tab_i *tab__create(tm_tab_create_context_t *context, tm_ui_o *ui)
             .asset_root = tm_application_api->asset_root(context->application),
         }
     };
-    tab->query_data = tm_truth_query_api->create(tab->allocator, tab->tt);
     {
         uint32_t types = tm_the_truth_api->num_types(tab->tt);
         tm_carray_push(tab->type_names, "Nil", allocator);
@@ -940,7 +924,6 @@ static const char *tab__create_menu_category(void)
 static void tab__destroy(tm_tab_o *tab)
 {
     tm_properties_view_api->destroy_properties_view(tab->properties_view);
-    tm_truth_query_api->destroy(tab->query_data);
     tm_carray_free(tab->type_names, tab->allocator);
     for (uint32_t i = 0; i < tm_carray_size(tab->search_items); ++i) {
         tm_free(tab->allocator, tab->search_items[i], strlen(tab->search_items[i]) + 1);
@@ -982,6 +965,5 @@ TM_DLL_EXPORT void tm_load_plugin(struct tm_api_registry_api *reg, bool load)
     tm_set_or_remove_api(reg, load, TM_TRUTH_INSPECTOR_TAB_VT_NAME, truth_inspector_tab_vt);
     tm_add_or_remove_implementation(reg, load, TM_TAB_VT_INTERFACE_NAME, truth_inspector_tab_vt);
     load_aspect_uis(reg, load);
-    load_query(reg, load);
     load_asset_browser_integration(reg, load);
 }
