@@ -42,8 +42,12 @@ jobs:
         binary_repository: https://ourmachinery.com/releases/2021.4/beta-2021.4-linux.zip
         mode: Plugin
         package: package.json
-    - name: Archive
-      uses: actions/upload-artifact@v2
+    - uses: "marvinpinto/action-automatic-releases@latest"
       with:
-        name: truth_inspector
-        path: ./build
+        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        automatic_release_tag: "latest"
+        title: "Latest Version"
+        files: |
+          LICENSE
+          README.md
+          ./build/*.zip 
