@@ -8,3 +8,5 @@ The Truth Inspector Tab allows the user to inspect Truth Objects or Truth types.
  - Display type properties, default values
  - Display owner
  - Display Aspects (if registered with `TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME` or `TM_THE_TRUTH_INSPECTOR_PROPERTY_ASPECT_INTERFACE_NAME`)
+
+The query language can be dismissed or ignored.

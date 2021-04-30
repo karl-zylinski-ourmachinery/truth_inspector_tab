@@ -8,6 +8,14 @@ newoption {
     description = "Force use of CLANG for Windows builds"
 }
 
+function get_include_dir()
+    local is_dev = os.getenv("TM_IS_DEV_VER")
+    if is_dev == nil then
+        return os.getenv("TM_SDK_DIR")
+    end
+    return os.getenv("TM_SDK_DIR") .. "/headers"
+end
+
 workspace "truth_inspector_tab"
     configurations {"Debug", "Release"}
     language "C++"
@@ -43,7 +51,7 @@ filter { "system:windows", "options:clang" }
 
 filter "platforms:Win64"
     defines { "TM_OS_WINDOWS", "_CRT_SECURE_NO_WARNINGS" }
-    includedirs { "%TM_SDK_DIR%" }
+    includedirs { get_include_dir() }
     staticruntime "On"
     architecture "x64"
     prebuildcommands {
@@ -66,7 +74,7 @@ filter "platforms:Win64"
 
 filter {"platforms:Linux"}
     defines { "TM_OS_LINUX", "TM_OS_POSIX" }
-    includedirs { "${TM_SDK_DIR}/headers" }
+    includedirs { get_include_dir() }
     architecture "x64"
     toolset "clang"
     buildoptions {
