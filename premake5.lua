@@ -119,5 +119,6 @@ project "truth_inspector_tab"
     targetdir "$(TM_SDK_DIR)/bin/%{cfg.buildcfg}/plugins"
     dependson("foundation")
     links { "foundation" }
+    linkoptions{"-Wl,-force-load,libfoundation.a"}
     defines { "TM_LINKS_FOUNDATION" }
     defines { "TM_LINKS_TRUTH_QUERY" }
