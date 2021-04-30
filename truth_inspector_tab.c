@@ -1,7 +1,4 @@
-extern struct tm_localizer_api *tm_localizer_api;
-extern struct tm_the_truth_api *tm_the_truth_api;
-extern struct tm_temp_allocator_api *tm_temp_allocator_api;
-extern struct tm_random_api *tm_random_api;
+
 
 static struct tm_ui_popup_item_picker_api *tm_ui_popup_item_picker_api;
 static struct tm_api_registry_api *tm_global_api_registry;
@@ -10,14 +7,19 @@ static struct tm_application_api *tm_application_api;
 static struct tm_logger_api *tm_logger_api;
 
 struct tm_os_clipboard_api *tm_os_clipboard_api;
-
+struct tm_localizer_api *tm_localizer_api;
+struct tm_the_truth_api *tm_the_truth_api;
+struct tm_temp_allocator_api *tm_temp_allocator_api;
+struct tm_random_api *tm_random_api;
 struct tm_ui_api *tm_ui_api;
 struct tm_properties_view_api *tm_properties_view_api;
+struct tm_error_api *tm_error_api;
 
 #include <foundation/allocator.h>
 #include <foundation/api_registry.h>
 #include <foundation/application.h>
 #include <foundation/carray.inl>
+#include <foundation/error.h>
 #include <foundation/localizer.h>
 #include <foundation/log.h>
 #include <foundation/macros.h>
@@ -822,7 +824,9 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         }
     } else if (!filter->picked && display_use_aspect) {
         bool type_aspects_expanded = false;
-        tm_tt_id_t id = { tm_random_api->next() };
+        static tm_tt_id_t id = { 0 };
+        if (!id.u64)
+            id.u64 = tm_random_api->next();
         float y = tm_properties_view_api->ui_group(&data->prop_args, row_r, "Type Aspects", NULL, id, 0, false, &type_aspects_expanded);
         row_r.y = y;
         if (type_aspects_expanded) {
@@ -830,7 +834,9 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
                 row_r.y = aspect_ui(&data->prop_args, row_r, data->aspects[i]);
                 const tm_the_truth_get_types_with_aspect_t *types = tm_the_truth_api->get_types_with_aspect(data->tt, data->aspects[filter->picked]->type_hash, ta);
                 bool show_types = false;
-                tm_tt_id_t type_id = { tm_random_api->next() };
+                static tm_tt_id_t type_id = { 0 };
+                if (!type_id.u64)
+                    type_id.u64 = tm_random_api->next();
                 row_r.y = tm_properties_view_api->ui_group(&data->prop_args, row_r, tm_temp_allocator_api->printf(ta, "Types with aspect (%" PRIu64 ")", tm_carray_size(types)), NULL, type_id, 0, false, &show_types);
                 if (show_types) {
                     for (uint32_t t = 0; t < (uint32_t)tm_carray_size(types); ++t) {
@@ -849,8 +855,10 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
             }
         }
         bool prop_aspects_expanded = false;
-        id.u64 = tm_random_api->next();
-        y = tm_properties_view_api->ui_group(&data->prop_args, row_r, "Property Aspects", NULL, id, 0, false, &prop_aspects_expanded);
+        static tm_tt_id_t prop_id = { 0 };
+        if (!prop_id.u64)
+            prop_id.u64 = tm_random_api->next();
+        y = tm_properties_view_api->ui_group(&data->prop_args, row_r, "Property Aspects", NULL, prop_id, 0, false, &prop_aspects_expanded);
         row_r.y = y;
         if (prop_aspects_expanded) {
             for (uint32_t i = data->prop_aspect_begin + 1; i < (uint32_t)tm_carray_size(data->aspects); ++i) {
@@ -864,8 +872,10 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         if (filter->picked <= data->prop_aspect_begin) {
             const tm_the_truth_get_types_with_aspect_t *types = tm_the_truth_api->get_types_with_aspect(data->tt, data->aspects[filter->picked]->type_hash, ta);
             bool show_types = false;
-            tm_tt_id_t type_id = { tm_random_api->next() };
-            row_r.y = tm_properties_view_api->ui_group(&data->prop_args, row_r, tm_temp_allocator_api->printf(ta, "Types with aspect (%" PRIu64 ")", tm_carray_size(types)), NULL, type_id, 0, false, &show_types);
+            static tm_tt_id_t prop_id = { 0 };
+            if (!prop_id.u64)
+                prop_id.u64 = tm_random_api->next();
+            row_r.y = tm_properties_view_api->ui_group(&data->prop_args, row_r, tm_temp_allocator_api->printf(ta, "Types with aspect (%" PRIu64 ")", tm_carray_size(types)), NULL, prop_id, 0, false, &show_types);
             if (show_types) {
                 for (uint32_t t = 0; t < (uint32_t)tm_carray_size(types); ++t) {
                     const char *type_name = type_names[types[t].type.u64];
@@ -1093,6 +1103,12 @@ TM_DLL_EXPORT void tm_load_plugin(struct tm_api_registry_api *reg, bool load)
     tm_application_api = reg->get(TM_APPLICATION_API_NAME);
     tm_os_clipboard_api = reg->get(TM_OS_CLIPBOARD_API_NAME);
     tm_logger_api = reg->get(TM_LOGGER_API_NAME);
+
+    tm_localizer_api = reg->get(TM_LOCALIZER_API_NAME);
+    tm_the_truth_api = reg->get(TM_THE_TRUTH_API_NAME);
+    tm_temp_allocator_api = reg->get(TM_TEMP_ALLOCATOR_API_NAME);
+    tm_random_api = reg->get(TM_RANDOM_API_NAME);
+    tm_error_api = reg->get(TM_ERROR_API_NAME);
 
     tm_set_or_remove_api(reg, load, TM_TRUTH_INSPECTOR_TAB_VT_NAME, truth_inspector_tab_vt);
     tm_add_or_remove_implementation(reg, load, TM_TAB_VT_INTERFACE_NAME, truth_inspector_tab_vt);
