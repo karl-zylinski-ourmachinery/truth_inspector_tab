@@ -1,6 +1,7 @@
 extern struct tm_localizer_api *tm_localizer_api;
 extern struct tm_the_truth_api *tm_the_truth_api;
 extern struct tm_temp_allocator_api *tm_temp_allocator_api;
+extern struct tm_random_api *tm_random_api;
 
 static struct tm_ui_popup_item_picker_api *tm_ui_popup_item_picker_api;
 static struct tm_api_registry_api *tm_global_api_registry;
@@ -21,6 +22,7 @@ struct tm_properties_view_api *tm_properties_view_api;
 #include <foundation/log.h>
 #include <foundation/macros.h>
 #include <foundation/murmurhash64a.inl>
+#include <foundation/random.h>
 #include <foundation/rect.inl>
 #include <foundation/string.inl>
 #include <foundation/temp_allocator.h>
@@ -95,6 +97,7 @@ struct tm_tab_o
     tm_the_truth_o *tt;
     char **type_names;
     char **search_items;
+    char **search_aspect_names;
     tm_tt_type_t *tt_types;
     tm_properties_view_o *properties_view;
     tm_properties_ui_args_t prop_args;
@@ -102,6 +105,10 @@ struct tm_tab_o
     char buffer[1024];
     tm_set_id_t expanded;
     tm_hash64_t index_or_hash_to_type;
+    tm_hash64_t index_or_hash_to_aspect;
+    const tm_tt_inspector_aspect_t **aspects;
+    // index after which the prop aspects start
+    uint32_t prop_aspect_begin;
 };
 
 #pragma endregion
@@ -256,31 +263,21 @@ float aspect_ui(tm_properties_ui_args_t *args, tm_rect_t props_r, const tm_tt_in
 
 #pragma region inspect functions
 
-static float inline inspect_aspect_internal(tm_properties_ui_args_t *args, tm_rect_t props_r, const tm_the_truth_get_aspects_t *aspect, uint32_t num_i, tm_tt_inspector_aspect_t **aspect_data)
-{
-    for (uint32_t i = 0; i < num_i; ++i) {
-        if (TM_STRHASH_U64(aspect_data[i]->type_hash) == TM_STRHASH_U64(aspect->id)) {
-            props_r.y = aspect_ui(args, props_r, aspect_data[i]);
-            if (aspect_data[i]->ui) {
-                props_r.y = aspect_data[i]->ui(args, props_r, aspect);
-            }
-            return props_r.y;
-        }
-    }
-    return 0;
-}
-
 static float inspect_aspect(tm_properties_ui_args_t *args, tm_rect_t props_r, const tm_the_truth_get_aspects_t *aspect)
 {
-    uint32_t num_i;
-    tm_tt_inspector_aspect_t **aspect_data = (tm_tt_inspector_aspect_t **)tm_global_api_registry->implementations(TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, &num_i);
-    float y = inspect_aspect_internal(args, props_r, aspect, num_i, aspect_data);
+    float y = 0;
+    TM_INIT_TEMP_ALLOCATOR(ta);
+    char *type_hash_str = tm_temp_allocator_api->printf(ta, "%" PRIu64, TM_STRHASH_U64(aspect->id));
+    const uint64_t key = TM_STRHASH_U64(tm_murmur_hash_string(type_hash_str));
+    const uint64_t idx = tm_hash_get(&args->tab->inst->index_or_hash_to_aspect, key);
+    TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
+    if (idx != UINT32_MAX) {
+        y = aspect_ui(args, props_r, args->tab->inst->aspects[idx]);
+        if (args->tab->inst->aspects[idx]->ui) {
+            y = args->tab->inst->aspects[idx]->ui(args, props_r, aspect);
+        }
+    }
     if (y == 0) {
-        num_i = 0;
-        tm_tt_inspector_aspect_t **prop_aspect_data = (tm_tt_inspector_aspect_t **)tm_global_api_registry->implementations(TM_THE_TRUTH_INSPECTOR_PROPERTY_ASPECT_INTERFACE_NAME, &num_i);
-        y = inspect_aspect_internal(args, props_r, aspect, num_i, prop_aspect_data);
-        if (y != 0)
-            return y;
         return aspect_ui(args, props_r, &(tm_tt_inspector_aspect_t){ .name = "Unknown", .type_hash = aspect->id, .description = "- None -", .define = "Unknown" });
     } else {
         return y;
@@ -665,11 +662,23 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
     const char **type_names = data->type_names;
     tm_tt_type_t *tt_types = data->tt_types;
     const char **search_items = data->search_items;
-    if (filter->mode != MODE_DISPLAY_SPECIFIC_OBJECT) {
+    const char **search_aspect_names = data->search_aspect_names;
+    if (filter->mode != MODE_DISPLAY_SPECIFIC_OBJECT && filter->mode != MODE_DISPLAY_ASPECT) {
         tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = label_r, .text = TM_LOCALIZE("Truth Type Name") });
         tm_rect_t text_r = { content_r.x + label_r.w + 10, content_r.y, content_r.w - label_r.w - 10, metrics_item_h };
         if (tm_ui_popup_item_picker_api->pick_textedit(ui, uistyle, &(tm_ui_textedit_picker_t){ .rect = text_r, .default_text = "Enter Truth Type Name or Hash or Index", .num_of_strings = (uint32_t)tm_carray_size(search_items) - 1, .strings = search_items, .search_text = data->buffer, .search_text_bytes = 1024 }, &data->filter.picked, &not_in_list)) {
             uint64_t index = tm_hash_get_rv(&data->index_or_hash_to_type, TM_STRHASH_U64(tm_murmur_hash_string(search_items[data->filter.picked])));
+            data->filter.picked = (uint32_t)index;
+        }
+        if (tm_vec2_in_rect(uib.input->mouse_pos, text_r) && (uib.input->right_mouse_pressed || uib.input->left_mouse_pressed)) {
+            data->filter.object = (tm_tt_id_t){ 0 };
+        }
+        content_r.y += metrics_item_h;
+    } else if (filter->mode != MODE_DISPLAY_SPECIFIC_OBJECT) {
+        tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = label_r, .text = TM_LOCALIZE("Aspect Name") });
+        tm_rect_t text_r = { content_r.x + label_r.w + 10, content_r.y, content_r.w - label_r.w - 10, metrics_item_h };
+        if (tm_ui_popup_item_picker_api->pick_textedit(ui, uistyle, &(tm_ui_textedit_picker_t){ .rect = text_r, .default_text = "Enter Truth Type Name or Hash or Index", .num_of_strings = (uint32_t)tm_carray_size(search_aspect_names) - 1, .strings = search_aspect_names, .search_text = data->buffer, .search_text_bytes = 1024 }, &data->filter.picked, &not_in_list)) {
+            uint64_t index = tm_hash_get_rv(&data->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(search_aspect_names[data->filter.picked])));
             data->filter.picked = (uint32_t)index;
         }
         if (tm_vec2_in_rect(uib.input->mouse_pos, text_r) && (uib.input->right_mouse_pressed || uib.input->left_mouse_pressed)) {
@@ -811,6 +820,67 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         } else {
             tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = row_r, .text = TM_LOCALIZE("No object found") });
         }
+    } else if (!filter->picked && display_use_aspect) {
+        bool type_aspects_expanded = false;
+        tm_tt_id_t id = { tm_random_api->next() };
+        float y = tm_properties_view_api->ui_group(&data->prop_args, row_r, "Type Aspects", NULL, id, 0, false, &type_aspects_expanded);
+        row_r.y = y;
+        if (type_aspects_expanded) {
+            for (uint32_t i = 0; i < data->prop_aspect_begin; ++i) {
+                row_r.y = aspect_ui(&data->prop_args, row_r, data->aspects[i]);
+                const tm_the_truth_get_types_with_aspect_t *types = tm_the_truth_api->get_types_with_aspect(data->tt, data->aspects[filter->picked]->type_hash, ta);
+                bool show_types = false;
+                tm_tt_id_t type_id = { tm_random_api->next() };
+                row_r.y = tm_properties_view_api->ui_group(&data->prop_args, row_r, tm_temp_allocator_api->printf(ta, "Types with aspect (%" PRIu64 ")", tm_carray_size(types)), NULL, type_id, 0, false, &show_types);
+                if (show_types) {
+                    for (uint32_t t = 0; t < (uint32_t)tm_carray_size(types); ++t) {
+                        const char *type_name = type_names[types[t].type.u64];
+                        tm_rect_t typename_r = tm_rect_split_right(row_r, 50, 0, 0);
+                        tm_rect_t btn_r = tm_rect_split_right(row_r, 50, 0, 1);
+                        typename_r.x += 10;
+                        tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = typename_r, .text = type_name });
+                        if (tm_ui_api->button(ui, uistyle, &(tm_ui_button_t){ .rect = btn_r, .text = "Inspect" })) {
+                            show_this_type(data, types[t].type);
+                        }
+                        row_r.y = row_r.y + row_r.h + uib.metrics[TM_UI_METRIC_MARGIN];
+                    }
+                }
+                row_r.y = tm_properties_view_api->ui_horizontal_line(&data->prop_args, row_r);
+            }
+        }
+        bool prop_aspects_expanded = false;
+        id.u64 = tm_random_api->next();
+        y = tm_properties_view_api->ui_group(&data->prop_args, row_r, "Property Aspects", NULL, id, 0, false, &prop_aspects_expanded);
+        row_r.y = y;
+        if (prop_aspects_expanded) {
+            for (uint32_t i = data->prop_aspect_begin + 1; i < (uint32_t)tm_carray_size(data->aspects); ++i) {
+                row_r.y = aspect_ui(&data->prop_args, row_r, data->aspects[i]);
+                row_r.y = tm_properties_view_api->ui_horizontal_line(&data->prop_args, row_r);
+            }
+        }
+        max_y = row_r.y;
+    } else if (filter->picked && display_use_aspect) {
+        row_r.y = aspect_ui(&data->prop_args, row_r, data->aspects[filter->picked]);
+        if (filter->picked <= data->prop_aspect_begin) {
+            const tm_the_truth_get_types_with_aspect_t *types = tm_the_truth_api->get_types_with_aspect(data->tt, data->aspects[filter->picked]->type_hash, ta);
+            bool show_types = false;
+            tm_tt_id_t type_id = { tm_random_api->next() };
+            row_r.y = tm_properties_view_api->ui_group(&data->prop_args, row_r, tm_temp_allocator_api->printf(ta, "Types with aspect (%" PRIu64 ")", tm_carray_size(types)), NULL, type_id, 0, false, &show_types);
+            if (show_types) {
+                for (uint32_t t = 0; t < (uint32_t)tm_carray_size(types); ++t) {
+                    const char *type_name = type_names[types[t].type.u64];
+                    tm_rect_t typename_r = tm_rect_split_right(row_r, 50, 0, 0);
+                    tm_rect_t btn_r = tm_rect_split_right(row_r, 50, 0, 1);
+                    typename_r.x += 10;
+                    tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = typename_r, .text = type_name });
+                    if (tm_ui_api->button(ui, uistyle, &(tm_ui_button_t){ .rect = btn_r, .text = "Inspect" })) {
+                        show_this_type(data, types[t].type);
+                    }
+                    row_r.y = row_r.y + row_r.h + uib.metrics[TM_UI_METRIC_MARGIN];
+                }
+            }
+        }
+        max_y = row_r.y;
     }
     data->max_y = max_y + uib.metrics[TM_UI_METRIC_MARGIN];
     tm_ui_api->end_scrollview(ui, NULL, &data->scroll_y, true);
@@ -868,7 +938,8 @@ static tm_tab_i *tab__create(tm_tab_create_context_t *context, tm_ui_o *ui)
             .root_id = *id,
         },
         .expanded = { .allocator = allocator },
-        .index_or_hash_to_type = { .allocator = allocator },
+        .index_or_hash_to_type = { .allocator = allocator, .default_value = UINT32_MAX },
+        .index_or_hash_to_aspect = { .allocator = allocator, .default_value = UINT32_MAX },
         .allocator = allocator,
         .tt = context->tt,
         .prop_args = (tm_properties_ui_args_t){
@@ -911,6 +982,61 @@ static tm_tab_i *tab__create(tm_tab_create_context_t *context, tm_ui_o *ui)
         }
         TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
     }
+    // add aspects
+    {
+        TM_INIT_TEMP_ALLOCATOR(ta);
+        uint32_t num_i = 0;
+        tm_tt_inspector_aspect_t **aspect_data = (tm_tt_inspector_aspect_t **)tm_global_api_registry->implementations(TM_THE_TRUTH_INSPECTOR_ASPECT_INTERFACE_NAME, &num_i);
+        for (uint32_t i = 0; i < num_i; ++i) {
+            tm_carray_push(tab->aspects, aspect_data[i], allocator);
+            const uint32_t idx = (uint32_t)tm_carray_size(tab->aspects) - 1;
+            {
+                char *type_index_str = tm_alloc(allocator, strlen(aspect_data[i]->name) + 1);
+                strcpy(type_index_str, aspect_data[i]->name);
+                tm_carray_push(tab->search_aspect_names, type_index_str, allocator);
+                tm_hash_add_rv(&tab->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(type_index_str)), idx);
+            }
+            {
+                char *type_index_str = tm_alloc(allocator, strlen(aspect_data[i]->define) + 1);
+                strcpy(type_index_str, aspect_data[i]->define);
+                tm_carray_push(tab->search_aspect_names, type_index_str, allocator);
+                tm_hash_add_rv(&tab->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(type_index_str)), idx);
+            }
+            {
+                char *type_hash_str_tmp = tm_temp_allocator_api->printf(ta, "%" PRIu64, TM_STRHASH_U64(aspect_data[i]->type_hash));
+                char *type_hash_str = tm_alloc(allocator, strlen(type_hash_str_tmp) + 1);
+                strcpy(type_hash_str, type_hash_str_tmp);
+                tm_carray_push(tab->search_aspect_names, type_hash_str, allocator);
+                tm_hash_add_rv(&tab->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(type_hash_str)), idx);
+            }
+        }
+        tab->prop_aspect_begin = (uint32_t)tm_carray_size(tab->aspects) - 1;
+        tm_tt_inspector_aspect_t **prop_aspect_data = (tm_tt_inspector_aspect_t **)tm_global_api_registry->implementations(TM_THE_TRUTH_INSPECTOR_PROPERTY_ASPECT_INTERFACE_NAME, &num_i);
+        for (uint32_t i = 0; i < num_i; ++i) {
+            tm_carray_push(tab->aspects, prop_aspect_data[i], allocator);
+            const uint32_t idx = (uint32_t)tm_carray_size(tab->aspects) - 1;
+            {
+                char *type_index_str = tm_alloc(allocator, strlen(prop_aspect_data[i]->name) + 1);
+                strcpy(type_index_str, prop_aspect_data[i]->name);
+                tm_carray_push(tab->search_aspect_names, type_index_str, allocator);
+                tm_hash_add_rv(&tab->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(type_index_str)), idx);
+            }
+            {
+                char *type_index_str = tm_alloc(allocator, strlen(prop_aspect_data[i]->define) + 1);
+                strcpy(type_index_str, prop_aspect_data[i]->name);
+                tm_carray_push(tab->search_aspect_names, type_index_str, allocator);
+                tm_hash_add_rv(&tab->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(type_index_str)), idx);
+            }
+            {
+                char *type_hash_str_tmp = tm_temp_allocator_api->printf(ta, "%" PRIu64, TM_STRHASH_U64(prop_aspect_data[i]->type_hash));
+                char *type_hash_str = tm_alloc(allocator, strlen(type_hash_str_tmp) + 1);
+                strcpy(type_hash_str, type_hash_str_tmp);
+                tm_carray_push(tab->search_aspect_names, type_hash_str, allocator);
+                tm_hash_add_rv(&tab->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(type_hash_str)), idx);
+            }
+        }
+        TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
+    }
     tab__set_root(tab, context->tt, (tm_tt_id_t){ 0 });
     *id += 1000000;
     return &tab->tm_tab_i;
@@ -928,10 +1054,16 @@ static void tab__destroy(tm_tab_o *tab)
     for (uint32_t i = 0; i < tm_carray_size(tab->search_items); ++i) {
         tm_free(tab->allocator, tab->search_items[i], strlen(tab->search_items[i]) + 1);
     }
+    for (uint32_t i = 0; i < tm_carray_size(tab->search_aspect_names); ++i) {
+        tm_free(tab->allocator, tab->search_aspect_names[i], strlen(tab->search_aspect_names[i]) + 1);
+    }
+    tm_carray_free(tab->search_aspect_names, tab->allocator);
     tm_carray_free(tab->search_items, tab->allocator);
     tm_carray_free(tab->tt_types, tab->allocator);
     tm_set_free(&tab->expanded);
     tm_hash_free(&tab->index_or_hash_to_type);
+    tm_hash_free(&tab->index_or_hash_to_aspect);
+    tm_carray_free(&tab->aspects, tab->allocator);
     tm_free(tab->allocator, tab, sizeof(*tab));
 }
 
