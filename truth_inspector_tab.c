@@ -5,6 +5,7 @@ static struct tm_api_registry_api *tm_global_api_registry;
 static struct tm_draw2d_api *tm_draw2d_api;
 static struct tm_application_api *tm_application_api;
 static struct tm_logger_api *tm_logger_api;
+static struct tm_docking_api *tm_docking_api;
 
 struct tm_os_clipboard_api *tm_os_clipboard_api;
 struct tm_localizer_api *tm_localizer_api;
@@ -145,6 +146,11 @@ void show_this_object(tm_tab_o *data, tm_tt_id_t object)
     data->filter.object = object;
     data->filter.picked = 0;
     snprintf(data->buffer, 1024, "%" PRIu64, object.u64);
+}
+
+void open_in_property_tab(tm_tab_o *data, tm_tt_id_t object)
+{
+    tm_docking_api->send_focus_event(&data->tm_tab_i, TM_TAB_FOCUS_EVENT__FOCUS, data->tt, object, &object, 1);
 }
 
 #pragma endregion
@@ -466,7 +472,7 @@ static float inspect_object_properties(tm_properties_ui_args_t *args, tm_rect_t 
         group_r.y = tm_properties_view_api->ui_static_text(args, group_r, "Has data", NULL, has_data ? "Yes" : "No");
         // inspect value:
         if (has_data) {
-            group_r.y = tm_properties_view_api->ui_property(args, group_r, object, 0, index);
+            group_r.y = tm_properties_view_api->ui_property_with_name(args, group_r, "Value", NULL, object, 0, index);
         }
         switch (prop->type) {
         case TM_THE_TRUTH_PROPERTY_TYPE_SUBOBJECT: {
@@ -585,10 +591,18 @@ static float inspect_objects(tm_properties_ui_args_t *args, tm_rect_t group_r, c
                         show_all_object_owned_by_this(args->tab->inst, owner);
                     }
                     object_r.y += metrics_item_h;
+                    if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){ .rect = object_r, .text = "Open in Property View Tab" })) {
+                        open_in_property_tab(args->tab->inst, owner);
+                    }
+                    object_r.y += metrics_item_h;
                     object_r.x -= 10;
                 }
                 object_r.x -= 10;
             }
+            if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){ .rect = object_r, .text = "Open in Property View Tab" })) {
+                open_in_property_tab(args->tab->inst, id);
+            }
+            object_r.y += metrics_item_h;
             // 3. Properties
             tm_ui_api->label(args->ui, args->uistyle, &(tm_ui_label_t){ .rect = object_r, .text = TM_LOCALIZE("Properties:") });
             tm_ui_api->label(args->ui, args->uistyle, &(tm_ui_label_t){ .rect = object_r, .text = TM_LOCALIZE("Properties:") });
@@ -1104,6 +1118,7 @@ TM_DLL_EXPORT void tm_load_plugin(struct tm_api_registry_api *reg, bool load)
     tm_temp_allocator_api = reg->get(TM_TEMP_ALLOCATOR_API_NAME);
     tm_random_api = reg->get(TM_RANDOM_API_NAME);
     tm_error_api = reg->get(TM_ERROR_API_NAME);
+    tm_docking_api = reg->get(TM_DOCKING_API_NAME);
 
     tm_set_or_remove_api(reg, load, TM_TRUTH_INSPECTOR_TAB_VT_NAME, truth_inspector_tab_vt);
     tm_add_or_remove_implementation(reg, load, TM_TAB_VT_INTERFACE_NAME, truth_inspector_tab_vt);
