@@ -30,7 +30,7 @@
             "name": "Win64: the-machinery",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "bin/Debug/the-machinery.exe",
+            "program": "${env:TM_SDK_DIR}/bin/Debug/the-machinery.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceRoot}",
