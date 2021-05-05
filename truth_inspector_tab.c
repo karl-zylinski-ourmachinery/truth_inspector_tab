@@ -462,7 +462,12 @@ static float inspect_object_properties(tm_properties_ui_args_t *args, tm_rect_t 
         } else {
             group_r.y = tm_properties_view_api->ui_static_text(args, group_r, "Prototype", NULL, "No Prototype");
         }
-        group_r.y = tm_properties_view_api->ui_static_text(args, group_r, "Has data", NULL, tm_the_truth_api->has_data(args->tt, tm_tt_read(args->tt, object), index) ? "Yes" : "No");
+        const bool has_data = tm_the_truth_api->has_data(args->tt, tm_tt_read(args->tt, object), index);
+        group_r.y = tm_properties_view_api->ui_static_text(args, group_r, "Has data", NULL, has_data ? "Yes" : "No");
+        // inspect value:
+        if (has_data) {
+            group_r.y = tm_properties_view_api->ui_property(args, group_r, object, 0, index);
+        }
         switch (prop->type) {
         case TM_THE_TRUTH_PROPERTY_TYPE_SUBOBJECT: {
             TM_INIT_TEMP_ALLOCATOR(ta);
@@ -526,8 +531,7 @@ static float inspect_objects(tm_properties_ui_args_t *args, tm_rect_t group_r, c
         bool expanded = false;
         const char *object_name = get_name_if_exists(args->tt, id);
         const char *group_name = object_name ? tm_temp_allocator_api->printf(ta, "#%" PRIu64 " %s", id.u64, object_name) : tm_temp_allocator_api->printf(ta, "#%" PRIu64, (id.u64));
-        float y = tm_properties_view_api->ui_group(args, group_r, group_name, NULL, id, 0, false, &expanded);
-        group_r.y = y;
+        group_r.y = tm_properties_view_api->ui_group(args, group_r, group_name, NULL, id, 0, false, &expanded);
         if (expanded) {
             tm_rect_t object_r = group_r;
             // 1. display basic information about object:
@@ -559,8 +563,7 @@ static float inspect_objects(tm_properties_ui_args_t *args, tm_rect_t group_r, c
                 object_r.x += 10;
                 const char *owner_name = get_name_if_exists(args->tt, owner);
                 const char *owner_group_name = owner_name ? tm_temp_allocator_api->printf(ta, "ID: %" PRIu64 " Type: %s Name: %s", id.u64, type_names[owner.type], owner_name) : tm_temp_allocator_api->printf(ta, "ID: %" PRIu64 " Type: %s", id.u64, type_names[owner.type]);
-                y = tm_properties_view_api->ui_group(args, object_r, owner_group_name, NULL, owner, 0, false, &owner_expanded);
-                object_r.y = y;
+                object_r.y = tm_properties_view_api->ui_group(args, object_r, owner_group_name, NULL, owner, 0, false, &owner_expanded);
                 if (owner_expanded) {
                     object_r.x += 10;
                     if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){ .rect = object_r, .text = "Inspect" })) {
@@ -591,15 +594,7 @@ static float inspect_objects(tm_properties_ui_args_t *args, tm_rect_t group_r, c
             tm_ui_api->label(args->ui, args->uistyle, &(tm_ui_label_t){ .rect = object_r, .text = TM_LOCALIZE("Properties:") });
             object_r.y += metrics_item_h;
             object_r.y = inspect_object_properties(args, object_r, tt, type, id);
-            // 4. Data
-            bool data_expanded = false;
-            y = tm_properties_view_api->ui_group(args, object_r, "Inspect Values", NULL, id, 0, false, &data_expanded);
-            object_r.y = y + uib.metrics[TM_UI_METRIC_MARGIN];
-            if (data_expanded) {
-                object_r.y = y;
-                y = tm_properties_view_api->ui_object(args, object_r, id, 2);
-            }
-            group_r.y = y + uib.metrics[TM_UI_METRIC_MARGIN];
+            group_r.y = object_r.y + uib.metrics[TM_UI_METRIC_MARGIN];
         }
     }
     TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
@@ -814,7 +809,7 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         row_r.y = tm_properties_view_api->ui_horizontal_line(&data->prop_args, row_r);
         max_y = show_owned_objects(&data->prop_args, row_r, data->tt, &data->filter, type_names);
     } else if (display_object) {
-        if (data->filter.object.u64) {
+        if (tm_the_truth_api->is_alive(data->tt, data->filter.object)) {
             tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = row_r, .text = TM_LOCALIZE("Found Object:") });
             tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = row_r, .text = TM_LOCALIZE("Found Object:") });
             row_r.y += metrics_item_h;
