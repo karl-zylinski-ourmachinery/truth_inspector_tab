@@ -44,7 +44,7 @@ jobs:
         package: package.json
     - uses: actions/upload-artifact@v2
       with:
-        name: linux-latest
+        name: linux_latest
         path: ./build/*.zip
   binary-windows:
     name: Build latest for Windows
@@ -83,6 +83,10 @@ jobs:
     steps:
       - name: Download a Build Artifact
         uses: actions/download-artifact@v2.0.9
+        with:
+          path: ./
+      - name: Display structure of downloaded files
+        run: ls -R
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
             repo_token: "${{ secrets.GITHUB_TOKEN }}"
@@ -90,5 +94,10 @@ jobs:
             title: "Latest Version"
             prerelease: false
             files: |
-              ./windows_latest/*.zip 
-              ./linux_latest/*.zip 
+              ./*/*.zip
+      - name: Delete Artifact
+        uses: GeekyEggo/delete-artifact@v1.0.0
+        with:
+          name: |
+            windows_latest
+            linux_latest
