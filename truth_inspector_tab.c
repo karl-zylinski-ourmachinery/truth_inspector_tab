@@ -91,7 +91,7 @@ enum search_filter_mode_e {
     MODE_SEARCH_FILTER_DEFINE,
 };
 
-enum on_focus_event_copy_behvaiour_e {
+enum on_focus_event_open_behaviour_e {
     ON_FOCUS_COPY_NONE,
     ON_FOCUS_COPY_ID,
     ON_FOCUS_COPY_TYPE,
@@ -102,7 +102,7 @@ enum on_focus_event_copy_behvaiour_e {
     ON_FOCUS_COPY_PROTOTYPE_ID,
 };
 
-enum on_focus_event_open_behaviour_e {
+enum on_focus_event_copy_behaviour_e {
     ON_FOCUS_SHOW_NONE,
     ON_FOCUS_SHOW_OBJECT,
     ON_FOCUS_SHOW_TYPE,
