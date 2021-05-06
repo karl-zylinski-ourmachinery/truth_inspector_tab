@@ -549,7 +549,7 @@ static float inspect_object_properties(tm_properties_ui_args_t *args, tm_rect_t 
         const bool has_data = tm_the_truth_api->has_data(args->tt, tm_tt_read(args->tt, object), index);
         group_r.y = tm_properties_view_api->ui_static_text(args, group_r, "Has data", NULL, has_data ? "Yes" : "No");
         // inspect value:
-        if (has_data) {
+        if (has_data && prop->type != TM_THE_TRUTH_PROPERTY_TYPE_SUBOBJECT && prop->type != TM_THE_TRUTH_PROPERTY_TYPE_SUBOBJECT_SET) {
             group_r.y = tm_properties_view_api->ui_property_with_name(args, group_r, "Value", NULL, object, 0, index);
         }
         switch (prop->type) {
@@ -612,10 +612,11 @@ static float inspect_objects(tm_properties_ui_args_t *args, tm_rect_t group_r, c
     tm_tt_type_t type = tm_tt_type(id);
     if (tm_the_truth_api->is_alive(tt, id)) {
         tm_tt_id_t owner = tm_the_truth_api->owner(tt, id);
-        bool expanded = args->tab->inst->filter.display_mode == MODE_DISPLAY_SPECIFIC_OBJECT;
+        const bool is_asset = tm_tt_type(owner).u64 == tm_the_truth_api->object_type_from_name_hash(tt, TM_TT_TYPE_HASH__ASSET).u64;
+        bool expanded = false;
         const char *object_name = get_name_if_exists(args->tt, id);
         const char *group_name = object_name ? tm_temp_allocator_api->printf(ta, "#%" PRIu64 " %s", id.u64, object_name) : tm_temp_allocator_api->printf(ta, "#%" PRIu64, (id.u64));
-        group_r.y = tm_properties_view_api->ui_group(args, group_r, group_name, NULL, id, 0, false, &expanded);
+        group_r.y = tm_properties_view_api->ui_group(args, group_r, group_name, NULL, id, 0, args->tab->inst->filter.display_mode == MODE_DISPLAY_SPECIFIC_OBJECT, &expanded);
         if (expanded) {
             tm_rect_t object_r = group_r;
             // 1. display basic information about object:
@@ -632,6 +633,9 @@ static float inspect_objects(tm_properties_ui_args_t *args, tm_rect_t group_r, c
             object_r.y = tm_properties_view_api->ui_static_text(args, object_r, "Type", NULL, tm_temp_allocator_api->printf(ta, "%s", type_names[id.type]));
             object_r.y = tm_properties_view_api->ui_static_text(args, object_r, "Type Index", NULL, tm_temp_allocator_api->printf(ta, "%" PRIu64, id.type));
             object_r.y = copy_disabled_text(args, object_r, "Type Hash", tm_temp_allocator_api->printf(ta, "%" PRIu64, tm_the_truth_api->type_name_hash(tt, (tm_tt_type_t){ id.type })));
+            if (is_asset) {
+                object_r.y = tm_properties_view_api->ui_static_text(args, object_r, "Is Asset", NULL, "Yes");
+            }
             if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){ .rect = object_r, .text = tm_temp_allocator_api->printf(ta, "Inspect type %s", type_names[id.type]) })) {
                 show_this_type(args->tab->inst, tm_tt_type(id));
             }
@@ -1055,7 +1059,7 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         }
         max_y = row_r.y;
     }
-    data->max_y = max_y + uib.metrics[TM_UI_METRIC_MARGIN];
+    data->max_y = max_y + uib.metrics[TM_UI_METRIC_MARGIN] + 350;
     tm_ui_api->end_scrollview(ui, NULL, &data->scroll_y, true);
     TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
 }
@@ -1240,6 +1244,146 @@ static tm_tab_i *tab__create(tm_tab_create_context_t *context, tm_ui_o *ui)
     return &tab->tm_tab_i;
 }
 
+static bool active_tab(const tm_strhash_t graph_tab_name)
+{
+    TM_INIT_TEMP_ALLOCATOR(ta);
+    bool active = false;
+    uint64_t num_graph_tabs = tm_carray_size(tm_docking_api->find_tabs(graph_tab_name, ta));
+    if (num_graph_tabs) {
+        uint32_t n = tm_docking_api->tab_info(0, 0, 0, false);
+        tm_docking_tab_info_t *tabs = tm_temp_alloc(ta, n * sizeof(*tabs));
+        n = tm_docking_api->tab_info(tabs, n, 0, false);
+        for (uint32_t i = 0; i < n; ++i) {
+            if (tabs[i].visible && TM_STRHASH_U64(tabs[i].tab->vt->name_hash) == TM_STRHASH_U64(graph_tab_name)) {
+                active = true;
+                break;
+            }
+        }
+    }
+    TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
+    return active;
+}
+
+static void tab__focus_event(tm_tab_o *tab, tm_tab_i *from, enum tm_tab_focus_event event, struct tm_the_truth_o *tt, tm_tt_id_t object, const tm_tt_id_t *selection, uint32_t selection_n)
+{
+    if (tab->tt != tt || tab->filter.object.u64 == object.u64)
+        return;
+
+    if (!object.u64 && selection_n) {
+        object = selection[0];
+        if (!object.u64)
+            return;
+    }
+    const bool has_focus = active_tab(TM_TRUTH_INSPECTOR_TAB_VT_NAME_HASH);
+    if (!has_focus && (!tab->no_focus_interaction_copy || !tab->no_focus_interaction_open))
+        return;
+
+    if (tab->on_focus_open != ON_FOCUS_SHOW_NONE) {
+        if (tab->on_focus_open == ON_FOCUS_SHOW_OBJECT) {
+            show_this_object(tab, object);
+        } else if (tab->on_focus_open == ON_FOCUS_SHOW_TYPE) {
+            show_this_type(tab, tm_tt_type(object));
+        } else if (tab->on_focus_open == ON_FOCUS_SHOW_OWNER) {
+            tm_tt_id_t owner = tm_the_truth_api->owner(tt, object);
+            if (owner.u64)
+                show_this_object(tab, owner);
+        } else if (tab->on_focus_open == ON_FOCUS_SHOW_OWNER_TYPE) {
+            tm_tt_id_t owner = tm_the_truth_api->owner(tt, object);
+            if (owner.u64)
+                show_this_type(tab, tm_tt_type(owner));
+        } else if (tab->on_focus_open == ON_FOCUS_SHOW_PROTOTYPE) {
+            tm_tt_id_t prot = tm_the_truth_api->prototype(tt, object);
+            if (prot.u64) {
+                show_this_object(tab, prot);
+            }
+        }
+    }
+    if (tab->on_focus_copy != ON_FOCUS_COPY_NONE) {
+        if (tab->on_focus_copy == ON_FOCUS_COPY_ID) {
+            copy_tm_tt_id(object);
+        } else if (tab->on_focus_copy == ON_FOCUS_COPY_TYPE) {
+            copy_tm_tt_type(tm_tt_type(object));
+        } else if (tab->on_focus_copy == ON_FOCUS_COPY_TYPE_HASH) {
+            copy_tm_tt_type_hash(tt, tm_tt_type(object));
+        } else if (tab->on_focus_copy == ON_FOCUS_COPY_OWNER_ID) {
+            tm_tt_id_t owner = tm_the_truth_api->owner(tt, object);
+            if (owner.u64)
+                copy_tm_tt_id(owner);
+        } else if (tab->on_focus_copy == ON_FOCUS_COPY_OWNER_TYPE) {
+            tm_tt_id_t owner = tm_the_truth_api->owner(tt, object);
+            if (owner.u64)
+                copy_tm_tt_type(tm_tt_type(owner));
+        } else if (tab->on_focus_copy == ON_FOCUS_COPY_OWNER_TYPE_HASH) {
+            tm_tt_id_t owner = tm_the_truth_api->owner(tt, object);
+            if (owner.u64)
+                copy_tm_tt_type_hash(tt, tm_tt_type(owner));
+        } else if (tab->on_focus_copy == ON_FOCUS_COPY_PROTOTYPE_ID) {
+            tm_tt_id_t prot = tm_the_truth_api->prototype(tt, object);
+            if (prot.u64) {
+                copy_tm_tt_id(prot);
+            }
+        }
+    }
+}
+
+static void tab__menu(tm_tab_o *tab, tm_ui_o *ui, const tm_ui_style_t *uistyle, tm_vec2_t submenu_pos)
+{
+    enum {
+        MENU_OFFSET_ON_COPY = 1,
+        MENU_OFFSET_ON_SHOW = 1 + ON_FOCUS_COPY_PROTOTYPE_ID,
+        MENU_COPY_WITHOUT_FOCUS = 2 + ON_FOCUS_COPY_PROTOTYPE_ID + ON_FOCUS_SHOW_PROTOTYPE,
+        MENU_OPEN_WITHOUT_FOCUS,
+    };
+
+    bool copy_object_id = tab->on_focus_copy == ON_FOCUS_COPY_ID;
+    bool copy_object_type = tab->on_focus_copy == ON_FOCUS_COPY_TYPE;
+    bool copy_object_type_hash = tab->on_focus_copy == ON_FOCUS_COPY_TYPE_HASH;
+    bool copy_owner_id = tab->on_focus_copy == ON_FOCUS_COPY_OWNER_ID;
+    bool copy_owner_type = tab->on_focus_copy == ON_FOCUS_COPY_OWNER_TYPE;
+    bool copy_owner_type_hash = tab->on_focus_copy == ON_FOCUS_COPY_OWNER_TYPE_HASH;
+    bool copy_prototype_id = tab->on_focus_copy == ON_FOCUS_COPY_PROTOTYPE_ID;
+    bool copy_none = tab->on_focus_copy == ON_FOCUS_COPY_NONE;
+
+    bool show_object = tab->on_focus_open == ON_FOCUS_SHOW_OBJECT;
+    bool show_object_type = tab->on_focus_open == ON_FOCUS_SHOW_TYPE;
+    bool show_owner = tab->on_focus_open == ON_FOCUS_SHOW_OWNER;
+    bool show_owner_type = tab->on_focus_open == ON_FOCUS_SHOW_OWNER_TYPE;
+    bool show_prototype = tab->on_focus_open == ON_FOCUS_SHOW_PROTOTYPE;
+    bool show_none = tab->on_focus_open == ON_FOCUS_SHOW_NONE;
+    const tm_ui_menu_item_t root_items[] = {
+        { .text = TM_LOCALIZE("Still Copy if there is no focus"), .item_id = MENU_COPY_WITHOUT_FOCUS, .toggle = &tab->no_focus_interaction_copy },
+        { .text = TM_LOCALIZE("Still Show if there is no focus"), .item_id = MENU_OPEN_WITHOUT_FOCUS, .toggle = &tab->no_focus_interaction_open },
+        { 0 },
+        { .text = TM_LOCALIZE("On Focus Copy Nothing"), .item_id = MENU_OFFSET_ON_COPY + ON_FOCUS_COPY_NONE, .toggle = &copy_none },
+        { .text = TM_LOCALIZE("On Focus Copy Object ID"), .item_id = MENU_OFFSET_ON_COPY + ON_FOCUS_COPY_ID, .toggle = &copy_object_id },
+        { .text = TM_LOCALIZE("On Focus Copy Object Type"), .item_id = MENU_OFFSET_ON_COPY + ON_FOCUS_COPY_TYPE, .toggle = &copy_object_type },
+        { .text = TM_LOCALIZE("On Focus Copy Object Type  Hash"), .item_id = MENU_OFFSET_ON_COPY + ON_FOCUS_COPY_TYPE_HASH, .toggle = &copy_object_type_hash },
+        { .text = TM_LOCALIZE("On Focus Copy Owner ID"), .item_id = MENU_OFFSET_ON_COPY + ON_FOCUS_COPY_OWNER_ID, .toggle = &copy_owner_id },
+        { .text = TM_LOCALIZE("On Focus Copy Owner Type"), .item_id = MENU_OFFSET_ON_COPY + ON_FOCUS_COPY_OWNER_TYPE, .toggle = &copy_owner_type },
+        { .text = TM_LOCALIZE("On Focus Copy Owner Type Hash"), .item_id = MENU_OFFSET_ON_COPY + ON_FOCUS_COPY_OWNER_TYPE_HASH, .toggle = &copy_owner_type_hash },
+        { .text = TM_LOCALIZE("On Focus Copy Prototype ID"), .item_id = MENU_OFFSET_ON_COPY + ON_FOCUS_COPY_PROTOTYPE_ID, .toggle = &copy_prototype_id },
+        { 0 },
+        { .text = TM_LOCALIZE("On Focus Show Nothing"), .item_id = MENU_OFFSET_ON_SHOW + ON_FOCUS_SHOW_NONE, .toggle = &show_none },
+        { .text = TM_LOCALIZE("On Focus Show Object"), .item_id = MENU_OFFSET_ON_SHOW + ON_FOCUS_SHOW_OBJECT, .toggle = &show_object },
+        { .text = TM_LOCALIZE("On Focus Show Object Type"), .item_id = MENU_OFFSET_ON_SHOW + ON_FOCUS_SHOW_TYPE, .toggle = &show_object_type },
+        { .text = TM_LOCALIZE("On Focus Show Owner"), .item_id = MENU_OFFSET_ON_SHOW + ON_FOCUS_SHOW_OWNER, .toggle = &show_owner },
+        { .text = TM_LOCALIZE("On Focus Show Owner Type"), .item_id = MENU_OFFSET_ON_SHOW + ON_FOCUS_SHOW_OWNER_TYPE, .toggle = &show_owner_type },
+        { .text = TM_LOCALIZE("On Focus Show Prototype"), .item_id = MENU_OFFSET_ON_SHOW + ON_FOCUS_SHOW_PROTOTYPE, .toggle = &show_prototype },
+    };
+    const tm_ui_menu_t root_menu = { .pos = submenu_pos, .items = root_items, .num_items = TM_ARRAY_COUNT(root_items) };
+    tm_ui_menu_result_t res = tm_ui_api->menu(ui, uistyle, &root_menu);
+    if (res.selected_item_id && res.selected_item_id <= MENU_OFFSET_ON_SHOW) {
+        tab->on_focus_copy = res.selected_item_id - MENU_OFFSET_ON_COPY;
+    } else if (res.selected_item_id && res.selected_item_id >= MENU_OFFSET_ON_SHOW && res.selected_item_id < MENU_COPY_WITHOUT_FOCUS) {
+        tab->on_focus_open = res.selected_item_id - MENU_OFFSET_ON_SHOW;
+    }
+}
+
+static const char *tab__menu_title(tm_tab_o *tab, tm_ui_o *ui)
+{
+    return TM_LOCALIZE("The Truth Inspector");
+}
+
 static const char *tab__create_menu_category(void)
 {
     return TM_LOCALIZE("Debugging");
@@ -1286,6 +1430,9 @@ static tm_the_machinery_tab_vt *truth_inspector_tab_vt = &(tm_the_machinery_tab_
     .run_as_job = false,
     .always_update = true,
     .create_menu_category = tab__create_menu_category,
+    .focus_event = tab__focus_event,
+    .menu_title = tab__menu_title,
+    .menu = tab__menu,
     .ui = tab__ui,
 };
 
