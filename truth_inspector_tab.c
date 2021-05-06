@@ -360,6 +360,7 @@ static float inspect_aspect(tm_properties_ui_args_t *args, tm_rect_t props_r, co
     if (idx != UINT32_MAX) {
         y = aspect_ui(args, props_r, args->tab->inst->aspects[idx]);
         if (args->tab->inst->aspects[idx]->ui) {
+            props_r.y = y;
             y = args->tab->inst->aspects[idx]->ui(args, props_r, aspect);
         }
     }
