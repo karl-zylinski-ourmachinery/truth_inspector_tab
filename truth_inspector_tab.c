@@ -74,7 +74,7 @@ static float default_metrics[] = {
 
 #pragma region type defentions
 
-enum filter_mode_e {
+enum display_filter_mode_e {
     MODE_DISPLAY_SPECIFIC_OBJECT,
     MODE_DISPLAY_OBJECTS_OF_TYPE,
     MODE_DISPLAY_OBJECTS_OWNED_BY,
@@ -83,12 +83,44 @@ enum filter_mode_e {
     MODE_DISPLAY_ASPECT,
 };
 
+enum search_filter_mode_e {
+    MODE_SEARCH_FILTER_NONE,
+    MODE_SEARCH_FILTER_NAME,
+    MODE_SEARCH_FILTER_HASH,
+    MODE_SEARCH_FILTER_TYPE,
+    MODE_SEARCH_FILTER_DEFINE,
+};
+
+enum on_focus_event_copy_behvaiour_e {
+    ON_FOCUS_COPY_NONE,
+    ON_FOCUS_COPY_ID,
+    ON_FOCUS_COPY_TYPE,
+    ON_FOCUS_COPY_TYPE_HASH,
+    ON_FOCUS_COPY_OWNER_ID,
+    ON_FOCUS_COPY_OWNER_TYPE,
+    ON_FOCUS_COPY_OWNER_TYPE_HASH,
+    ON_FOCUS_COPY_PROTOTYPE_ID,
+};
+
+enum on_focus_event_open_behaviour_e {
+    ON_FOCUS_SHOW_NONE,
+    ON_FOCUS_SHOW_OBJECT,
+    ON_FOCUS_SHOW_TYPE,
+    ON_FOCUS_SHOW_OWNER,
+    ON_FOCUS_SHOW_OWNER_TYPE,
+    ON_FOCUS_SHOW_PROTOTYPE,
+};
+
 struct filter_t
 {
     uint32_t picked;
     tm_tt_id_t object;
-    enum filter_mode_e mode;
+    enum display_filter_mode_e display_mode;
+    // search mode for type
+    enum search_filter_mode_e search_mode;
 };
+
+typedef char **carray_str_ref_ptr;
 
 struct tm_tab_o
 {
@@ -98,20 +130,40 @@ struct tm_tab_o
     float max_y;
     float scroll_y;
     tm_the_truth_o *tt;
-    char **type_names;
-    char **search_items;
-    char **search_aspect_names;
+
+    // owning pointers:
+    /*carray*/ char **type_names;
+    /*carray*/ char **search_items;
+    /*carray*/ char **search_aspect_names;
+
+    // none owing reference carrays:
+    carray_str_ref_ptr search_items_ids;
+    carray_str_ref_ptr search_items_names;
+    carray_str_ref_ptr search_items_hash;
+
+    carray_str_ref_ptr search_aspect_items_define;
+    carray_str_ref_ptr search_aspect_items_names;
+    carray_str_ref_ptr search_aspect_items_hash;
+
     tm_tt_type_t *tt_types;
     tm_properties_view_o *properties_view;
     tm_properties_ui_args_t prop_args;
+
     struct filter_t filter;
     char buffer[1024];
+
     tm_set_id_t expanded;
     tm_hash64_t index_or_hash_to_type;
     tm_hash64_t index_or_hash_to_aspect;
     const tm_tt_inspector_aspect_t **aspects;
     // index after which the prop aspects start
     uint32_t prop_aspect_begin;
+
+    enum on_focus_event_open_behaviour_e on_focus_open;
+    enum on_focus_event_copy_behaviour_e on_focus_copy;
+
+    bool no_focus_interaction_copy;
+    bool no_focus_interaction_open;
 };
 
 #pragma endregion
@@ -121,7 +173,7 @@ struct tm_tab_o
 void show_all_object_of_this_type(tm_tab_o *data, tm_tt_type_t type)
 {
     data->filter.picked = (uint32_t)type.u64;
-    data->filter.mode = MODE_DISPLAY_OBJECTS_OF_TYPE;
+    data->filter.display_mode = MODE_DISPLAY_OBJECTS_OF_TYPE;
     snprintf(data->buffer, 1024, "%s", data->type_names[data->filter.picked]);
 }
 
@@ -129,20 +181,20 @@ void show_all_object_owned_by_this(tm_tab_o *data, tm_tt_id_t owner)
 {
     data->filter.picked = (uint32_t)owner.type;
     data->filter.object = owner;
-    data->filter.mode = MODE_DISPLAY_OBJECTS_OWNED_BY;
+    data->filter.display_mode = MODE_DISPLAY_OBJECTS_OWNED_BY;
     snprintf(data->buffer, 1024, "%s", data->type_names[data->filter.picked]);
 }
 
 void show_this_type(tm_tab_o *data, tm_tt_type_t type)
 {
     data->filter.picked = (uint32_t)type.u64;
-    data->filter.mode = MODE_DISPLAY_TYPE;
+    data->filter.display_mode = MODE_DISPLAY_TYPE;
     snprintf(data->buffer, 1024, "%s", data->type_names[data->filter.picked]);
 }
 
 void show_this_object(tm_tab_o *data, tm_tt_id_t object)
 {
-    data->filter.mode = MODE_DISPLAY_SPECIFIC_OBJECT;
+    data->filter.display_mode = MODE_DISPLAY_SPECIFIC_OBJECT;
     data->filter.object = object;
     data->filter.picked = 0;
     snprintf(data->buffer, 1024, "%" PRIu64, object.u64);
@@ -201,6 +253,32 @@ const char *get_name_if_exists(const tm_the_truth_o *tt, tm_tt_id_t object)
     return NULL;
 }
 
+void copy_tm_tt_id(tm_tt_id_t object)
+{
+    TM_INIT_TEMP_ALLOCATOR(ta);
+    char *str = tm_temp_allocator_api->printf(ta, "%" PRIu64, object.u64);
+    tm_os_clipboard_item_t item = { .format = "text/plain", .data = str, .size = (uint32_t)strlen(str) };
+    tm_os_clipboard_api->set(&item, 1);
+    TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
+}
+
+void copy_tm_tt_type(tm_tt_type_t object)
+{
+    TM_INIT_TEMP_ALLOCATOR(ta);
+    char *str = tm_temp_allocator_api->printf(ta, "%" PRIu64, object.u64);
+    tm_os_clipboard_item_t item = { .format = "text/plain", .data = str, .size = (uint32_t)strlen(str) };
+    tm_os_clipboard_api->set(&item, 1);
+    TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
+}
+void copy_tm_tt_type_hash(const tm_the_truth_o *tt, tm_tt_type_t type)
+{
+    TM_INIT_TEMP_ALLOCATOR(ta);
+
+    char *str = tm_temp_allocator_api->printf(ta, "%" PRIu64, TM_STRHASH_U64(tm_the_truth_api->type_name_hash(tt, type)));
+    tm_os_clipboard_item_t item = { .format = "text/plain", .data = str, .size = (uint32_t)strlen(str) };
+    tm_os_clipboard_api->set(&item, 1);
+    TM_SHUTDOWN_TEMP_ALLOCATOR(ta);
+}
 // A text edit which is disabled but can be copied via right click
 float copy_disabled_text(tm_properties_ui_args_t *args, tm_rect_t props_r, const char *label, const char *data)
 {
@@ -487,7 +565,7 @@ static float inspect_object_properties(tm_properties_ui_args_t *args, tm_rect_t 
             tm_ui_api->label(args->ui, args->uistyle, &(tm_ui_label_t){ .rect = tm_rect_divide_x(group_r, 5, 2, 0), .text = tm_temp_allocator_api->printf(ta, "ID: %" PRIu64 " Type: %s %s", subobject, sub_type, sub_name) });
             if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){ .rect = tm_rect_divide_x(group_r, 5, 2, 1), .text = "Inspect" })) {
                 args->tab->inst->filter.object = subobject;
-                args->tab->inst->filter.mode = MODE_DISPLAY_SPECIFIC_OBJECT;
+                args->tab->inst->filter.display_mode = MODE_DISPLAY_SPECIFIC_OBJECT;
                 args->tab->inst->filter.picked = 0;
                 args->tab->inst->buffer[0] = 0;
             }
@@ -509,7 +587,7 @@ static float inspect_object_properties(tm_properties_ui_args_t *args, tm_rect_t 
                     tm_ui_api->label(args->ui, args->uistyle, &(tm_ui_label_t){ .rect = tm_rect_divide_x(group_r, 5, 2, 0), .text = tm_temp_allocator_api->printf(ta, "ID: %" PRIu64 " Type: %s %s", subobject, sub_type, sub_name) });
                     if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){ .rect = tm_rect_divide_x(group_r, 5, 2, 1), .text = "Inspect" })) {
                         args->tab->inst->filter.object = *subobject;
-                        args->tab->inst->filter.mode = MODE_DISPLAY_SPECIFIC_OBJECT;
+                        args->tab->inst->filter.display_mode = MODE_DISPLAY_SPECIFIC_OBJECT;
                         args->tab->inst->filter.picked = 0;
                         args->tab->inst->buffer[0] = 0;
                     }
@@ -534,7 +612,7 @@ static float inspect_objects(tm_properties_ui_args_t *args, tm_rect_t group_r, c
     tm_tt_type_t type = tm_tt_type(id);
     if (tm_the_truth_api->is_alive(tt, id)) {
         tm_tt_id_t owner = tm_the_truth_api->owner(tt, id);
-        bool expanded = false;
+        bool expanded = args->tab->inst->filter.display_mode == MODE_DISPLAY_SPECIFIC_OBJECT;
         const char *object_name = get_name_if_exists(args->tt, id);
         const char *group_name = object_name ? tm_temp_allocator_api->printf(ta, "#%" PRIu64 " %s", id.u64, object_name) : tm_temp_allocator_api->printf(ta, "#%" PRIu64, (id.u64));
         group_r.y = tm_properties_view_api->ui_group(args, group_r, group_name, NULL, id, 0, false, &expanded);
@@ -574,7 +652,7 @@ static float inspect_objects(tm_properties_ui_args_t *args, tm_rect_t group_r, c
                     object_r.x += 10;
                     if (tm_ui_api->button(args->ui, args->uistyle, &(tm_ui_button_t){ .rect = object_r, .text = "Inspect" })) {
                         args->tab->inst->filter.object = owner;
-                        args->tab->inst->filter.mode = MODE_DISPLAY_SPECIFIC_OBJECT;
+                        args->tab->inst->filter.display_mode = MODE_DISPLAY_SPECIFIC_OBJECT;
                         args->tab->inst->filter.picked = 0;
                         args->tab->inst->buffer[0] = 0;
                     }
@@ -649,6 +727,24 @@ static float show_owned_objects(tm_properties_ui_args_t *args, tm_rect_t group_r
     return group_r.y;
 }
 
+static inline enum search_filter_mode_e private__parse_search_filter(tm_str_t buffer)
+{
+    tm_str_t result = tm_strstr(buffer, tm_str(":"));
+    if (result.data) {
+        tm_str_t range = tm_str_range(buffer.data, result.data);
+        if (tm_strstr(range, tm_str("index")).data || tm_strstr(range, tm_str("id")).data || tm_strstr(range, tm_str("type")).data || tm_strstr(range, tm_str("Index")).data || tm_strstr(range, tm_str("Id")).data || tm_strstr(range, tm_str("Type")).data) {
+            return MODE_SEARCH_FILTER_TYPE;
+        } else if (tm_strstr(range, tm_str("name")).data || tm_strstr(range, tm_str("Name")).data) {
+            return MODE_SEARCH_FILTER_NAME;
+        } else if (tm_strstr(range, tm_str("Hash")).data || tm_strstr(range, tm_str("hash")).data) {
+            return MODE_SEARCH_FILTER_HASH;
+        } else if (tm_strstr(range, tm_str("Define")).data || tm_strstr(range, tm_str("define")).data) {
+            return MODE_SEARCH_FILTER_DEFINE;
+        }
+    }
+    return MODE_SEARCH_FILTER_NONE;
+}
+
 // TODO: add advanced filter
 // TODO: add tagging
 // TODO: add change
@@ -674,26 +770,75 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
     tm_tt_type_t *tt_types = data->tt_types;
     char **search_items = data->search_items;
     char **search_aspect_names = data->search_aspect_names;
-    if (filter->mode != MODE_DISPLAY_SPECIFIC_OBJECT && filter->mode != MODE_DISPLAY_ASPECT) {
+    if (filter->display_mode != MODE_DISPLAY_SPECIFIC_OBJECT && filter->display_mode != MODE_DISPLAY_ASPECT) {
         tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = label_r, .text = TM_LOCALIZE("Truth Type Name") });
         tm_rect_t text_r = { content_r.x + label_r.w + 10, content_r.y, content_r.w - label_r.w - 10, metrics_item_h };
-        if (tm_ui_popup_item_picker_api->pick_textedit(ui, uistyle, &(tm_ui_textedit_picker_t){ .rect = text_r, .default_text = "Enter Truth Type Name or Hash or Index", .num_of_strings = (uint32_t)tm_carray_size(search_items) - 1, .strings = search_items, .search_text = data->buffer, .search_text_bytes = 1024 }, &data->filter.picked, &not_in_list)) {
-            uint64_t index = tm_hash_get_rv(&data->index_or_hash_to_type, TM_STRHASH_U64(tm_murmur_hash_string(search_items[data->filter.picked])));
-            data->filter.picked = (uint32_t)index;
+
+        // get search data input:
+        if (data->filter.search_mode == MODE_SEARCH_FILTER_NAME) {
+            search_items = data->search_items_names;
+        } else if (data->filter.search_mode == MODE_SEARCH_FILTER_HASH) {
+            search_items = data->search_items_hash;
+        } else if (data->filter.search_mode == MODE_SEARCH_FILTER_TYPE) {
+            search_items = data->search_items_ids;
+        }
+
+        uint32_t selected = (uint32_t)data->filter.search_mode;
+        const char *search_modes[4] = { "Mixed", "Name", "Hash", "Type" };
+        tm_rect_t dropdown_r = tm_rect_split_left(text_r, 64, 0, 0);
+        if (tm_ui_api->dropdown(ui, uistyle, &(tm_ui_dropdown_t){ .items = search_modes, .num_items = 4, .rect = dropdown_r }, &selected)) {
+            data->filter.search_mode = (enum search_filter_mode_e)selected;
+        }
+
+        if (tm_ui_popup_item_picker_api->pick_textedit(ui, uistyle, &(tm_ui_textedit_picker_t){ .rect = tm_rect_split_left(text_r, 64, 0, 1), .default_text = "Enter Truth Type Name or Hash or Index", .num_of_strings = (uint32_t)tm_carray_size(search_items) - 1, .strings = search_items, .search_text = data->buffer, .search_text_bytes = 1024 }, &data->filter.picked, &not_in_list)) {
+            if (!not_in_list) {
+                uint64_t index = tm_hash_get_rv(&data->index_or_hash_to_type, TM_STRHASH_U64(tm_murmur_hash_string(search_items[data->filter.picked])));
+                data->filter.picked = (uint32_t)index;
+            } else {
+                data->filter.picked = 0;
+            }
+        }
+        enum search_filter_mode_e search_mode = private__parse_search_filter(tm_str(data->buffer));
+        if (search_mode != MODE_SEARCH_FILTER_NONE && search_mode != MODE_SEARCH_FILTER_DEFINE) {
+            data->filter.search_mode = search_mode;
+            data->buffer[0] = 0;
         }
         if (tm_vec2_in_rect(uib.input->mouse_pos, text_r) && (uib.input->right_mouse_pressed || uib.input->left_mouse_pressed)) {
             data->filter.object = (tm_tt_id_t){ 0 };
         }
         content_r.y += metrics_item_h;
-    } else if (filter->mode != MODE_DISPLAY_SPECIFIC_OBJECT) {
+    } else if (filter->display_mode != MODE_DISPLAY_SPECIFIC_OBJECT) {
         tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = label_r, .text = TM_LOCALIZE("Aspect Name") });
         tm_rect_t text_r = { content_r.x + label_r.w + 10, content_r.y, content_r.w - label_r.w - 10, metrics_item_h };
-        if (tm_ui_popup_item_picker_api->pick_textedit(ui, uistyle, &(tm_ui_textedit_picker_t){ .rect = text_r, .default_text = "Enter Truth Type Name or Hash or Index", .num_of_strings = (uint32_t)tm_carray_size(search_aspect_names) - 1, .strings = search_aspect_names, .search_text = data->buffer, .search_text_bytes = 1024 }, &data->filter.picked, &not_in_list)) {
+
+        // get search data input:
+        if (data->filter.search_mode == MODE_SEARCH_FILTER_NAME) {
+            search_aspect_names = data->search_aspect_items_names;
+        } else if (data->filter.search_mode == MODE_SEARCH_FILTER_HASH) {
+            search_aspect_names = data->search_aspect_items_hash;
+        } else if (data->filter.search_mode == MODE_SEARCH_FILTER_DEFINE) {
+            search_aspect_names = data->search_aspect_items_define;
+        }
+
+        uint32_t selected = (uint32_t)data->filter.search_mode;
+        selected = selected == 4 ? 3 : selected;
+        const char *search_modes[4] = { "Mixed", "Name", "Hash", "Define" };
+        tm_rect_t dropdown_r = tm_rect_split_left(text_r, 64, 0, 0);
+        if (tm_ui_api->dropdown(ui, uistyle, &(tm_ui_dropdown_t){ .items = search_modes, .num_items = 4, .rect = dropdown_r }, &selected)) {
+            data->filter.search_mode = (enum search_filter_mode_e)(selected == 3 ? 4 : selected);
+        }
+
+        if (tm_ui_popup_item_picker_api->pick_textedit(ui, uistyle, &(tm_ui_textedit_picker_t){ .rect = tm_rect_split_left(text_r, 64, 0, 1), .default_text = "Enter Truth Type Name or Hash or Index", .num_of_strings = (uint32_t)tm_carray_size(search_aspect_names) - 1, .strings = search_aspect_names, .search_text = data->buffer, .search_text_bytes = 1024 }, &data->filter.picked, &not_in_list)) {
             uint64_t index = tm_hash_get_rv(&data->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(search_aspect_names[data->filter.picked])));
             data->filter.picked = (uint32_t)index;
         }
         if (tm_vec2_in_rect(uib.input->mouse_pos, text_r) && (uib.input->right_mouse_pressed || uib.input->left_mouse_pressed)) {
             data->filter.object = (tm_tt_id_t){ 0 };
+        }
+        enum search_filter_mode_e search_mode = private__parse_search_filter(tm_str(data->buffer));
+        if (search_mode != MODE_SEARCH_FILTER_NONE) {
+            data->filter.search_mode = search_mode;
+            data->buffer[0] = 0;
         }
         content_r.y += metrics_item_h;
     } else {
@@ -717,24 +862,24 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
     tm_ui_api->label(ui, uistyle, &(tm_ui_label_t){ .rect = label_r, .text = TM_LOCALIZE("Display Mode") });
     tm_rect_t checkbox_row = { content_r.x + label_r.w + 10, content_r.y + metrics_item_h, content_r.w - label_r.w - 10, metrics_item_h };
 
-    if (tm_ui_api->radio(ui, uistyle, &(tm_ui_radio_t){ .rect = tm_rect_divide_x(checkbox_row, 5, 4, 0), .text = TM_LOCALIZE("Specific Object") }, filter->mode == MODE_DISPLAY_SPECIFIC_OBJECT)) {
+    if (tm_ui_api->radio(ui, uistyle, &(tm_ui_radio_t){ .rect = tm_rect_divide_x(checkbox_row, 5, 4, 0), .text = TM_LOCALIZE("Specific Object") }, filter->display_mode == MODE_DISPLAY_SPECIFIC_OBJECT)) {
         data->buffer[0] = 0;
         filter->object = (tm_tt_id_t){ 0 };
-        filter->mode = MODE_DISPLAY_SPECIFIC_OBJECT;
+        filter->display_mode = MODE_DISPLAY_SPECIFIC_OBJECT;
     }
 
-    if (tm_ui_api->radio(ui, uistyle, &(tm_ui_radio_t){ .rect = tm_rect_divide_x(checkbox_row, 5, 4, 1), .text = TM_LOCALIZE("All objects of type") }, filter->mode == MODE_DISPLAY_OBJECTS_OF_TYPE)) {
+    if (tm_ui_api->radio(ui, uistyle, &(tm_ui_radio_t){ .rect = tm_rect_divide_x(checkbox_row, 5, 4, 1), .text = TM_LOCALIZE("All objects of type") }, filter->display_mode == MODE_DISPLAY_OBJECTS_OF_TYPE)) {
         filter->object = (tm_tt_id_t){ 0 };
-        filter->mode = MODE_DISPLAY_OBJECTS_OF_TYPE;
+        filter->display_mode = MODE_DISPLAY_OBJECTS_OF_TYPE;
     }
 
-    if (tm_ui_api->radio(ui, uistyle, &(tm_ui_radio_t){ .rect = tm_rect_divide_x(checkbox_row, 5, 4, 2), .text = TM_LOCALIZE("Type defintion") }, filter->mode == MODE_DISPLAY_TYPE)) {
-        filter->mode = MODE_DISPLAY_TYPE;
+    if (tm_ui_api->radio(ui, uistyle, &(tm_ui_radio_t){ .rect = tm_rect_divide_x(checkbox_row, 5, 4, 2), .text = TM_LOCALIZE("Type defintion") }, filter->display_mode == MODE_DISPLAY_TYPE)) {
+        filter->display_mode = MODE_DISPLAY_TYPE;
         filter->object = (tm_tt_id_t){ 0 };
     }
 
-    if (tm_ui_api->radio(ui, uistyle, &(tm_ui_radio_t){ .rect = tm_rect_divide_x(checkbox_row, 5, 4, 3), .text = TM_LOCALIZE("Show Aspects") }, filter->mode == MODE_DISPLAY_ASPECT)) {
-        filter->mode = MODE_DISPLAY_ASPECT;
+    if (tm_ui_api->radio(ui, uistyle, &(tm_ui_radio_t){ .rect = tm_rect_divide_x(checkbox_row, 5, 4, 3), .text = TM_LOCALIZE("Show Aspects") }, filter->display_mode == MODE_DISPLAY_ASPECT)) {
+        filter->display_mode = MODE_DISPLAY_ASPECT;
         data->buffer[0] = 0;
         filter->object = (tm_tt_id_t){ 0 };
     }
@@ -743,27 +888,36 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         filter->picked = 0;
     }
 
-    const bool display_use_aspect = filter->mode == MODE_DISPLAY_ASPECT;
-    const bool display_only_type = filter->mode == MODE_DISPLAY_TYPE;
-    const bool display_object = filter->mode == MODE_DISPLAY_SPECIFIC_OBJECT;
-    const bool display_objects_of_type = filter->mode == MODE_DISPLAY_OBJECTS_OF_TYPE;
-    const bool display_owned_objects = filter->mode == MODE_DISPLAY_OBJECTS_OWNED_BY;
+    const bool display_use_aspect = filter->display_mode == MODE_DISPLAY_ASPECT;
+    const bool display_only_type = filter->display_mode == MODE_DISPLAY_TYPE;
+    const bool display_object = filter->display_mode == MODE_DISPLAY_SPECIFIC_OBJECT;
+    const bool display_objects_of_type = filter->display_mode == MODE_DISPLAY_OBJECTS_OF_TYPE;
+    const bool display_owned_objects = filter->display_mode == MODE_DISPLAY_OBJECTS_OWNED_BY;
 
     tm_rect_t filter_r = { .x = content_r.x, .y = content_r.y + 2 * metrics_item_h, .w = content_r.w, .h = metrics_item_h };
     if (display_owned_objects) {
         filter_r.y = tm_properties_view_api->ui_static_text(&data->prop_args, filter_r, "Filter", NULL, tm_temp_allocator_api->printf(ta, "Show only objects owned by #%" PRIu64, data->filter.object.u64));
         if (tm_ui_api->button(ui, uistyle, &(tm_ui_button_t){ .rect = filter_r, .text = "Reset filter" })) {
-            data->filter.mode = MODE_DISPLAY_TYPE;
+            data->filter.display_mode = MODE_DISPLAY_TYPE;
             data->filter.object = (tm_tt_id_t){ 0 };
+            data->filter.search_mode = MODE_SEARCH_FILTER_NONE;
         }
         filter_r.y += metrics_item_h + uib.metrics[TM_UI_METRIC_MARGIN];
     } else if (display_objects_of_type) {
         filter_r.y = tm_properties_view_api->ui_static_text(&data->prop_args, filter_r, "Filter", NULL, data->buffer[0] ? tm_temp_allocator_api->printf(ta, "Show objects of type %s", type_names[data->filter.picked]) : "No type selected");
-    } else if (display_only_type && data->buffer[0]) {
         if (tm_ui_api->button(ui, uistyle, &(tm_ui_button_t){ .rect = filter_r, .text = "Reset filter" })) {
-            data->filter.mode = MODE_DISPLAY_TYPE;
+            data->filter.display_mode = MODE_DISPLAY_OBJECTS_OF_TYPE;
             data->buffer[0] = 0;
             data->filter.object = (tm_tt_id_t){ 0 };
+            data->filter.search_mode = MODE_SEARCH_FILTER_NONE;
+        }
+        filter_r.y += metrics_item_h + uib.metrics[TM_UI_METRIC_MARGIN];
+    } else if (display_only_type && data->buffer[0]) {
+        if (tm_ui_api->button(ui, uistyle, &(tm_ui_button_t){ .rect = filter_r, .text = "Reset filter" })) {
+            data->filter.display_mode = MODE_DISPLAY_TYPE;
+            data->buffer[0] = 0;
+            data->filter.object = (tm_tt_id_t){ 0 };
+            data->filter.search_mode = MODE_SEARCH_FILTER_NONE;
         }
         filter_r.y += metrics_item_h + uib.metrics[TM_UI_METRIC_MARGIN];
     } else if (display_object && data->buffer[0]) {
@@ -794,7 +948,7 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         .w = scroll_content_r.w - 20,
         .h = 20.0f,
     };
-    if (filter->picked && !not_in_list && !display_use_aspect) {
+    if (filter->picked && !display_use_aspect) {
         if (display_objects_of_type) {
             tm_tt_id_t *ids = tm_the_truth_api->all_objects_of_type(data->tt, tt_types[filter->picked], ta);
             for (tm_tt_id_t *id = ids; id != tm_carray_end(ids); ++id) {
@@ -804,7 +958,7 @@ static void tab__ui(tm_tab_o *data, struct tm_ui_o *ui, const struct tm_ui_style
         } else {
             max_y = inspect_type(&data->prop_args, row_r, data->tt, tt_types[filter->picked], type_names[filter->picked]);
         }
-    } else if (display_only_type) {
+    } else if (display_only_type && data->filter.picked) {
         uint32_t tidx = 0;
         tm_rect_t type_r = row_r;
         for (tm_tt_type_t *type = tt_types; type != tm_carray_end(tt_types); ++type, ++tidx) {
@@ -967,6 +1121,7 @@ static tm_tab_i *tab__create(tm_tab_create_context_t *context, tm_ui_o *ui)
             .asset_root = tm_application_api->asset_root(context->application),
         }
     };
+    // Add search items for types:
     {
         uint32_t types = tm_the_truth_api->num_types(tab->tt);
         tm_carray_push(tab->type_names, "Nil", allocator);
@@ -980,6 +1135,10 @@ static tm_tab_i *tab__create(tm_tab_create_context_t *context, tm_ui_o *ui)
             char *name = tm_alloc(allocator, strlen(buffer) + 1);
             strcpy(name, buffer);
             tm_carray_push(tab->type_names, name, allocator);
+            // add none owning reference to type name
+            {
+                tm_carray_push(tab->search_items_names, tab->type_names[tm_carray_size(tab->type_names) - 1], allocator);
+            }
             tm_hash_add_rv(&tab->index_or_hash_to_type, TM_STRHASH_U64(tm_murmur_hash_string(name)), tm_carray_size(tab->type_names) - 1);
             tm_carray_push(tab->search_items, name, allocator);
             tm_carray_push(tab->tt_types, (tm_tt_type_t){ type }, allocator);
@@ -988,6 +1147,10 @@ static tm_tab_i *tab__create(tm_tab_create_context_t *context, tm_ui_o *ui)
                 char *type_index_str = tm_alloc(allocator, strlen(type_index_str_tmp) + 1);
                 strcpy(type_index_str, type_index_str_tmp);
                 tm_carray_push(tab->search_items, type_index_str, allocator);
+                // add none owning reference to type id
+                {
+                    tm_carray_push(tab->search_items_ids, tab->search_items[tm_carray_size(tab->search_items) - 1], allocator);
+                }
                 tm_hash_add_rv(&tab->index_or_hash_to_type, TM_STRHASH_U64(tm_murmur_hash_string(type_index_str)), tm_carray_size(tab->type_names) - 1);
             }
             {
@@ -996,6 +1159,10 @@ static tm_tab_i *tab__create(tm_tab_create_context_t *context, tm_ui_o *ui)
                 char *type_hash_str = tm_alloc(allocator, strlen(type_hash_str_tmp) + 1);
                 strcpy(type_hash_str, type_hash_str_tmp);
                 tm_carray_push(tab->search_items, type_hash_str, allocator);
+                // add none owning reference to type has type
+                {
+                    tm_carray_push(tab->search_items_hash, tab->search_items[tm_carray_size(tab->search_items) - 1], allocator);
+                }
                 tm_hash_add_rv(&tab->index_or_hash_to_type, TM_STRHASH_U64(tm_murmur_hash_string(type_hash_str)), tm_carray_size(tab->type_names) - 1);
             }
         }
@@ -1013,12 +1180,20 @@ static tm_tab_i *tab__create(tm_tab_create_context_t *context, tm_ui_o *ui)
                 char *type_index_str = tm_alloc(allocator, strlen(aspect_data[i]->name) + 1);
                 strcpy(type_index_str, aspect_data[i]->name);
                 tm_carray_push(tab->search_aspect_names, type_index_str, allocator);
+                // add none owning reference to aspect name
+                {
+                    tm_carray_push(tab->search_aspect_items_names, tab->search_aspect_names[tm_carray_size(tab->search_aspect_names) - 1], allocator);
+                }
                 tm_hash_add_rv(&tab->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(type_index_str)), idx);
             }
             {
                 char *type_index_str = tm_alloc(allocator, strlen(aspect_data[i]->define) + 1);
                 strcpy(type_index_str, aspect_data[i]->define);
                 tm_carray_push(tab->search_aspect_names, type_index_str, allocator);
+                // add none owning reference to aspect define
+                {
+                    tm_carray_push(tab->search_aspect_items_define, tab->search_aspect_names[tm_carray_size(tab->search_aspect_names) - 1], allocator);
+                }
                 tm_hash_add_rv(&tab->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(type_index_str)), idx);
             }
             {
@@ -1026,6 +1201,10 @@ static tm_tab_i *tab__create(tm_tab_create_context_t *context, tm_ui_o *ui)
                 char *type_hash_str = tm_alloc(allocator, strlen(type_hash_str_tmp) + 1);
                 strcpy(type_hash_str, type_hash_str_tmp);
                 tm_carray_push(tab->search_aspect_names, type_hash_str, allocator);
+                // add none owning reference to aspect hash
+                {
+                    tm_carray_push(tab->search_aspect_items_hash, tab->search_aspect_names[tm_carray_size(tab->search_aspect_names) - 1], allocator);
+                }
                 tm_hash_add_rv(&tab->index_or_hash_to_aspect, TM_STRHASH_U64(tm_murmur_hash_string(type_hash_str)), idx);
             }
         }
@@ -1069,6 +1248,16 @@ static const char *tab__create_menu_category(void)
 static void tab__destroy(tm_tab_o *tab)
 {
     tm_properties_view_api->destroy_properties_view(tab->properties_view);
+
+    // not owning therefore can be just freed
+    tm_carray_free(tab->search_items_hash, tab->allocator);
+    tm_carray_free(tab->search_items_ids, tab->allocator);
+    tm_carray_free(tab->search_items_names, tab->allocator);
+
+    tm_carray_free(tab->search_aspect_items_hash, tab->allocator);
+    tm_carray_free(tab->search_aspect_items_define, tab->allocator);
+    tm_carray_free(tab->search_aspect_items_names, tab->allocator);
+
     tm_carray_free(tab->type_names, tab->allocator);
     for (uint32_t i = 0; i < tm_carray_size(tab->search_items); ++i) {
         tm_free(tab->allocator, tab->search_items[i], strlen(tab->search_items[i]) + 1);
@@ -1097,7 +1286,7 @@ static tm_the_machinery_tab_vt *truth_inspector_tab_vt = &(tm_the_machinery_tab_
     .run_as_job = false,
     .always_update = true,
     .create_menu_category = tab__create_menu_category,
-    .ui = tab__ui
+    .ui = tab__ui,
 };
 
 #pragma endregion
